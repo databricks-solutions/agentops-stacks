@@ -1,165 +1,101 @@
 ---
 name: agentops-stacks
-description: Scaffold a new AgentOps Stacks project — a Declarative Automation Bundle (DAB) with dev/staging/prod targets, Unity Catalog conventions, and CI/CD wiring for GitHub Actions, GitLab, or Azure DevOps across AWS, Azure, or GCP. Use when the user wants to start a new AI project on Databricks, generate a DAB scaffold, or set up CI/CD for an agent/ML project. Triggers on "scaffold a new agentops project", "new DAB with CI/CD", "start a new Databricks AI project", "create agentops-stacks project".
+description: Scaffold a new AgentOps Stacks project — a multi-agent LangGraph bundle (DAB) with shared components, per-agent Databricks Apps, evaluation, and CI/CD. Use when the user wants to start a new AI agent project on Databricks. Triggers on "scaffold a new agentops project", "new DAB with CI/CD", "start a new Databricks AI project", "create agentops-stacks project".
 ---
 
-# agentops-stacks — Project Scaffold
+# agentops-stacks — Agent Project Scaffold
 
-## Overview
+Generates a production-ready multi-agent project on Databricks: shared components (retriever, memory, tools), per-agent LangGraph graphs served as Databricks Apps via MLflow AgentServer, evaluation with ConversationSimulator, and CI/CD workflows.
 
-Generates the production envelope for an AI project on Databricks: DAB layout with dev/staging/prod targets, Unity Catalog schema and volume, MLflow experiment, and CI/CD workflows. The skill is a thin UX layer over `databricks bundle init` — it collects the four required inputs, writes them to a config file, and shells out to the CLI.
-
-Use this skill once per project, at the start. After scaffolding, the user develops their solution under `src/` and applies evaluation, governance, and monitoring patterns from the ai-dev-kit plugin as the project matures.
+The first scaffold creates the bundle with one agent. Additional agents are added later via `/add-agent` or manually under `src/agents/`.
 
 ## Prerequisites
 
-This skill requires two things on every surface (Claude Code, Cursor, Genie Code):
+1. **Databricks CLI** installed and on PATH. Verify with `databricks --version` (skip in Genie Code).
+2. **uv** for Python dependency management.
+3. **Node.js >=20.19** for the chat UI frontend.
 
-1. **Databricks CLI.** Install from [docs.databricks.com](https://docs.databricks.com/dev-tools/cli/install.html). On local surfaces, run `databricks --version` to confirm; the CLI must be current enough to support the direct deployment engine (any release from the past 6 months is safe). Genie Code's wrapped CLI doesn't expose a version — trust the workspace and let `bundle init` errors surface if anything is wrong.
-2. **ai-dev-kit plugin.** The post-scaffold workflow (eval gates, monitoring, governance) routes to ai-dev-kit skills like `databricks-bundles`, `databricks-mlflow-evaluation`, and `databricks-vector-search`. Install ai-dev-kit before guiding the user past the scaffold step.
+If any are missing, surface install instructions and stop.
 
-If either is missing, surface the install instructions and stop. Do not attempt to work around an absent CLI or proceed past scaffold without ai-dev-kit available.
+## Scaffold workflow
 
-## Required inputs
+```
+Scaffold Progress:
+- [ ] Phase 1: Infrastructure inputs
+- [ ] Phase 2: Data sources
+- [ ] Phase 3: Tools
+- [ ] Phase 4: Evaluation
+- [ ] Phase 5: Validate, confirm, scaffold
+- [ ] Phase 6: Surface next steps
+```
 
-Collect four inputs from the user before scaffolding. **Collect them one at a time, in the order below.** Do not present a summary table, multi-input form, or batch the questions in any way. Ask one question, wait for the answer, validate it, then move to the next. This pattern produces clearer audit trails than batch collection and mirrors deterministic-workflow tooling.
+Collect inputs **one at a time, in order**. Skip questions that don't apply.
 
-For each input:
-1. State the input being collected and what it controls (one sentence).
-2. Offer the default if applicable.
-3. Wait for the user's response.
-4. Validate against the constraints below.
-5. If invalid, explain why and re-ask. If valid, acknowledge the value and move to the next input.
+### Phase 1: Infrastructure
 
-### 1. project_name (string)
+1. **project_name** (string) — Bundle name. Must match `^[a-z][a-z0-9_]{2,}$`.
+2. **initial_agent_name** (string) — Name of the first agent. Same pattern. Default: `default`.
+3. **cloud** — `aws`, `azure`, or `gcp`.
+4. **cicd_platform** — `github_actions`, `github_actions_for_github_enterprise_servers`, `azure_devops`, or `gitlab`.
+5. **destination** (path) — Must be a Git folder. Default: cwd if it's a Git folder.
 
-- **Constraint:** matches `^[a-z][a-z0-9_]{2,}$` — starts with a lowercase letter; lowercase letters, digits, and underscores only; minimum 3 characters.
-- **Used as:** bundle name, default catalog suffix, root directory name.
-- **Reject and re-ask:** `My-Project`, `1foo`, `ab`, anything with hyphens or uppercase. Explain the pattern; don't just say "invalid."
+### Phase 2: Data sources
 
-### 2. cloud (enum)
+6. **use_vector_search** — "Does your agent need to search unstructured data (RAG)?" → `yes`/`no`
+   - If yes → 7. **has_chunked_table** — "Do you already have a chunked Delta table?" → `yes`/`no`
+7. **use_lakebase** — "Does your agent need memory (conversation history)?" → `yes`/`no`
+   - If yes → 9. **memory_type** → `short_term`, `long_term`, or `both`
+8. **use_genie** — "Does your agent need to query structured data via Genie?" → `yes`/`no`
+   - If yes → 11. **genie_space_id** — ID or blank to configure later
 
-- **Options:** `aws`, `azure`, `gcp`.
-- **Default suggestion:** if you can infer the user's current workspace cloud, suggest matching it. Otherwise no default.
-- **Determines:** CI/CD auth blocks in the rendered project.
+### Phase 3: Tools
 
-### 3. cicd_platform (enum)
+9. **use_local_tools** — "Include example local Python tools?" → `yes` (default) / `no`
+10. **use_uc_functions** — "Will your agent call Unity Catalog functions?" → `yes`/`no`
+    - If yes → 14. **uc_functions_exist** — "Already defined in your catalog?" → `yes`/`no`
 
-- **Options:** `github_actions`, `github_actions_for_github_enterprise_servers`, `azure_devops`, `gitlab`.
-- **Determines:** which CI/CD directory ships in the scaffold.
+### Phase 4: Evaluation
 
-### 4. destination (path, required to be a Git folder)
+11. **has_eval_dataset** — "Do you already have an evaluation dataset?" → `yes`/`no`
+12. **eval_scorers** — Comma-separated from: `relevance`, `groundedness`, `safety`, `chunk_relevance`, `guideline_adherence`. Default: `relevance,groundedness,safety`.
 
-- **Default:** the current working directory if it is a Git folder; otherwise prompt.
-- **Constraint:** the destination must be (or be inside) a Databricks Git folder. The CLI creates `<destination>/<project_name>/`. Don't ask the user to pre-create the project directory — `bundle init` handles that part.
-- **Why a Git folder:** matches the layout produced by the Databricks workspace UI's "Create → Bundle" flow. When the scaffold lands inside a Git folder, the workspace UI surfaces a Deployments panel on the bundle that lets the user deploy to `dev` with one click — no CLI required. Scaffolding into a non-Git workspace folder still works for CLI-driven deploys but loses the UI Deployments path.
-- **How to check:**
-  - Claude Code / Cursor: `git rev-parse --show-toplevel` succeeds inside a Git folder, fails outside.
-  - Genie Code: ask the user to confirm. The destination should be a folder they created via Workspace → Add → Git folder (or an existing such folder). If unsure, instruct them to create one via the workspace UI before continuing.
-- **If the destination isn't a Git folder:** warn the user that the Workspace UI Deployments panel won't appear, offer to proceed anyway, and route them to CLI-only deploy in the next-steps message.
+### Phase 5: Validate, confirm, scaffold
 
-### Final confirmation
+Write inputs to `/tmp/agentops-stacks-inputs.json` (see schema for all keys). Validate:
 
-After all four inputs are collected, summarize back to the user once before running the CLI:
+```bash
+python scripts/validate_inputs.py --config /tmp/agentops-stacks-inputs.json
+```
 
-> "About to scaffold `<project_name>` for `<cloud>` + `<cicd_platform>` into `<destination>/<project_name>/`. Confirm?"
+Confirm with user, listing enabled components. Run:
 
-Only proceed on explicit confirmation. If the user wants to change any input, re-collect that single input — don't restart the whole sequence.
+```bash
+bash scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination <destination>
+```
 
-## How to run
+### Phase 6: Next steps
 
-1. **Verify the Databricks CLI.** On local surfaces (Claude Code, Cursor), run `databricks --version`. If it fails, surface the install instructions and stop. In Genie Code, skip this step — the wrapped CLI doesn't report a version cleanly; rely on `bundle init` errors instead.
+See [reference/post-scaffold.md](reference/post-scaffold.md) for next-steps checklist.
 
-2. **Write a temp config file** with the user's choices:
-   ```json
-   {
-     "input_project_name": "<project_name>",
-     "input_cloud": "<cloud>",
-     "input_cicd_platform": "<cicd_platform>"
-   }
-   ```
-   Save it to a tempfile under `/tmp/` (e.g., `/tmp/agentops-stacks-inputs.json`).
+After scaffolding:
+1. `cd <project_name>` and run `uv sync`
+2. Set up `.env` with Databricks auth profile
+3. `uv run start-app` to run the agent locally
+4. `uv run agent-evaluate` to run evaluation
+5. `databricks bundle deploy -t dev` to deploy
 
-3. **Run `bundle init`** pointing at the agentops-stacks template:
-   ```bash
-   databricks bundle init https://github.com/databricks-solutions/agentops-stacks \
-     --config-file <tempfile> \
-     --output-dir <destination>
-   ```
-   The CLI clones the template repo, renders against the config, and writes the project to `<destination>/<project_name>/`.
+## Adding more agents
 
-   **Alternate template sources:**
-   - Local clone: `databricks bundle init /path/to/agentops-stacks --config-file <tempfile> --output-dir <destination>` — faster, works offline.
-   - Pinned branch or tag: add `--branch <name>` or `--tag <name>` to the git URL form.
+1. Create `src/agents/<new_name>/` with `agent.py`, `tools.py`, `app/`, `eval/`
+2. Add a new `resources.apps.<name>` entry in `databricks.yml`
+3. Add to `.agentops-stacks/manifest.yml` under `agents:`
+4. Add entry points in `pyproject.toml` (or use `AGENT_MODULE` env var)
 
-4. **Leave the temp file in place.** It lives in `/tmp/` and the OS cleans it up. **Do not attempt to delete it programmatically** — Genie Code's safety heuristic blocks `os.remove`, `Path.unlink`, and equivalent file-deletion calls even for `/tmp` paths, which will surface a confusing "Code execution blocked" message at the end of a successful scaffold. The file is single-use; leaving it does no harm.
+A future `/add-agent` skill will automate this.
 
-5. **Surface the CLI's stdout to the user.** `bundle init` prints the template's success message and next-steps verbatim — relay them unchanged. Do not re-summarize.
+## Additional references
 
-## Genie Code workspace flow
-
-The canonical flow when running in Genie Code:
-
-1. User creates an empty Git folder in the workspace via Workspace → Add → Git folder, pointing at an empty target repo (e.g., `/Workspace/Users/<user>/my-agent/`). This step is required — the scaffold must land inside a Git folder for the workspace UI Deployments panel to appear.
-2. User opens Genie Code from inside that Git folder and asks to scaffold.
-3. Collect the four inputs above. Set `destination` to the Git folder itself (the bundle will be created as `<git-folder>/<project_name>/` — matching the layout produced by Workspace UI's "Create → Bundle").
-4. Run `databricks bundle init` with the git URL form (no local clone required in the workspace).
-5. The scaffold lands at `<destination>/<project_name>/`. The user commits and pushes through the workspace UI's Git controls.
-6. After scaffolding, the user can deploy via either the workspace UI's Deployments panel on the bundle (Targets → `dev` → Deploy) or the CLI (`databricks bundle deploy -t dev`).
-
-Git CLI is available in Genie Code, but repo lifecycle (create, commit, push) is more reliable through the workspace UI. Treat "Git folder exists in the workspace" as a hard prerequisite and instruct the user to set it up via the UI if they haven't.
-
-A Git folder can host multiple bundles as sibling subdirectories — the Workspace UI's Deployments pane is scoped per-bundle, not per-Git-folder. Re-running this skill against the same Git folder with a different `project_name` creates a coexisting bundle alongside the existing ones; each bundle gets its own Deployments pane and deploys independently.
-
-## Scaffold-in-place limitation
-
-`databricks bundle init` always creates `<destination>/<project_name>/`. There is no native flag to scaffold *into* an existing empty directory. If the user wants the scaffold contents at the root of an existing repo (instead of inside a subdirectory), scaffold to a temp location and `mv` the contents into place after. Don't attempt to outsmart the CLI with input_root_dir tricks — the path concatenation breaks in subtle ways.
-
-## After scaffolding
-
-Surface these next steps to the user, derived from the CLI's own success message:
-
-1. `cd <destination>/<project_name>`
-2. Review `.agentops-stacks/manifest.yml` and `databricks.yml`
-3. Set workspace hosts and Unity Catalog grants — see `docs/setup.md` in the rendered project
-4. `uv sync` (generates `uv.lock` — must be committed)
-5. `databricks bundle validate -t dev`
-
-**Two paths to deploy from here:**
-
-- **Workspace UI (Genie Code default).** If the scaffold landed inside a Git folder, open the bundle in the workspace UI — the Deployments panel on the bundle view lets you pick a target (`dev`) and Deploy with one click. No terminal needed.
-- **CLI.** `databricks bundle deploy -t dev` from the bundle's root directory. Works on every surface.
-
-For the development work that follows (agent code, evaluation, monitoring), route to ai-dev-kit skills:
-- `databricks-bundles` — bundle authoring, deployment, lifecycle
-- `databricks-mlflow-evaluation` — MLflow 3 evaluation, scorers, judges
-- `databricks-vector-search` — RAG, semantic search, similarity matching
-- `databricks-app-python` — Databricks Apps in Python
-- `databricks-genie` / `databricks-agent-bricks` — Genie Spaces, Knowledge Assistants, MAS
-
-Do not attempt step 5 (`databricks bundle validate`) from within this skill — it requires the user's workspace authentication and is the first thing they'll exercise themselves.
-
-## What this skill does NOT do
-
-- Doesn't apply evaluation, governance, or monitoring patterns. Those are separate skills coming later in the agentops-stacks plugin.
-- Doesn't create or clone git repos. The user owns repo creation.
-- Doesn't deploy. The user runs `databricks bundle deploy` from their authenticated environment.
-- Doesn't modify an existing scaffold. For retrofitting an existing project, a future `/adopt` workflow will handle that.
-
-## Common issues
-
-| Issue | Solution |
-|---|---|
-| `databricks: command not found` | Databricks CLI not installed. See [docs.databricks.com](https://docs.databricks.com/dev-tools/cli/install.html). |
-| `Error: A new access token could not be retrieved...` | The CLI eagerly refreshes the default profile's token. Run `databricks auth login` to fix, or set `DATABRICKS_CONFIG_FILE` to an empty file for the scaffold call (auth is required for the next step anyway). |
-| `Invalid project_name`: must match the pattern | Pattern is `^[a-z][a-z0-9_]{2,}$`: starts with a lowercase letter, then lowercase letters/digits/underscores, min 3 chars. Reject `My-Project`, `1foo`, `ab`. |
-| Output directory not empty | `bundle init` refuses to overwrite. Pick an empty path or have the user move/remove existing files. |
-| `Error: template path does not contain databricks_template_schema.json` | Wrong source path. The schema must be at the root of the template repo. Use the git URL form if the local-path resolution is uncertain. |
-| Genie Code: `databricks --version` returns nothing | Expected — the Genie Code CLI wrapper doesn't expose `--version`. Skip the version check and proceed; surface `bundle init` errors if anything is wrong. |
-| Workspace UI Deployments panel doesn't appear on the bundle | Bundle wasn't created inside a Git folder. The workspace UI only surfaces the Deployments panel for bundles under Git folders. Move the scaffold into a Git folder, or use the CLI to deploy (`databricks bundle deploy -t dev`). |
-
-## Reference files
-
-- `databricks_template_schema.json` (at the agentops-stacks repo root) — input schema with defaults, validation patterns, and the success message.
-- `template/` (at the agentops-stacks repo root) — the canonical template tree the CLI renders against.
-- Repo: <https://github.com/databricks-solutions/agentops-stacks>
+- **Genie Code flow**: See [reference/genie-code.md](reference/genie-code.md)
+- **Troubleshooting**: See [reference/common-issues.md](reference/common-issues.md)
+- **Template repo**: <https://github.com/databricks-solutions/agentops-stacks>
+- **Official app template**: <https://github.com/databricks/app-templates/tree/main/agent-langgraph>
