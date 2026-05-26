@@ -1,0 +1,27 @@
+"""AgentServer for {{ .input_initial_agent_name }}.
+
+Starts a FastAPI server that serves the agent via MLflow's AgentServer.
+"""
+
+from pathlib import Path
+
+from dotenv import load_dotenv
+from mlflow.genai.agent_server import AgentServer, setup_mlflow_git_based_version_tracking
+
+# Load env vars from .env before importing the agent for proper auth
+load_dotenv(dotenv_path=Path(__file__).parents[3] / ".env", override=True)
+
+# Import the agent to register @invoke/@stream handlers with the server
+import src.agents.{{ .input_initial_agent_name }}.agent  # noqa: F401
+
+agent_server = AgentServer("{{ .input_initial_agent_name }}", enable_chat_proxy=True)
+
+# Module-level app variable for uvicorn workers
+app = agent_server.app  # noqa: F841
+setup_mlflow_git_based_version_tracking()
+
+
+def main():
+    agent_server.run(
+        app_import_string="src.agents.{{ .input_initial_agent_name }}.app.start_server:app"
+    )

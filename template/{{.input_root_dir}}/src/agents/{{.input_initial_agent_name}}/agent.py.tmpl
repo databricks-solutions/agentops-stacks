@@ -1,0 +1,53 @@
+"""{{ .input_initial_agent_name }} — MLflow AgentServer handlers.
+
+This file contains the @invoke/@stream entry points. Graph assembly
+and component wiring live in graph.py and tools.py.
+"""
+
+import logging
+from typing import AsyncGenerator
+
+import mlflow
+from mlflow.genai.agent_server import invoke, stream
+from mlflow.types.responses import (
+    ResponsesAgentRequest,
+    ResponsesAgentResponse,
+    ResponsesAgentStreamEvent,
+    to_chat_completions_input,
+)
+
+from src.agents.{{ .input_initial_agent_name }}.graph import graph
+from src.agents.{{ .input_initial_agent_name }}.app.utils import (
+    get_session_id,
+    process_agent_astream_events,
+)
+
+logger = logging.getLogger(__name__)
+mlflow.langchain.autolog()
+
+
+@invoke()
+async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+    """Handle synchronous invocation requests."""
+    outputs = [
+        event.item
+        async for event in stream_handler(request)
+        if event.type == "response.output_item.done"
+    ]
+    return ResponsesAgentResponse(output=outputs)
+
+
+@stream()
+async def stream_handler(
+    request: ResponsesAgentRequest,
+) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
+    """Handle streaming requests."""
+    if session_id := get_session_id(request):
+        mlflow.update_current_trace(metadata={"mlflow.trace.session": session_id})
+
+    messages = {"messages": to_chat_completions_input([i.model_dump() for i in request.input])}
+
+    async for event in process_agent_astream_events(
+        graph.astream(input=messages, stream_mode=["updates", "messages"])
+    ):
+        yield event

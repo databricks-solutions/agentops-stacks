@@ -1,0 +1,66 @@
+"""{{ .input_initial_agent_name }} — LangGraph graph assembly.
+
+Composes shared components into a compiled graph.
+Edit tools.py to control tool selection.
+"""
+
+from langgraph.graph import START, END, StateGraph, MessagesState
+from databricks_langchain import ChatDatabricks
+from src.agents.{{ .input_initial_agent_name }}.tools import get_tools
+{{ if (eq .input_use_vector_search "yes") }}
+from src.components.retriever.search import get_relevant_chunks
+{{ end }}
+{{ if (eq .input_use_lakebase "yes") }}
+from src.components.memory.checkpointer import get_checkpointer
+{{ end }}
+
+
+# --- Nodes ---
+
+def agent_node(state: MessagesState) -> dict:
+    """Call the LLM with tools bound."""
+    tools = get_tools()
+    llm = ChatDatabricks(endpoint="databricks-claude-sonnet-4")
+    if tools:
+        llm = llm.bind_tools(tools)
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+{{ if (eq .input_use_vector_search "yes") }}
+
+def retriever_node(state: MessagesState) -> dict:
+    """Retrieve relevant chunks from Vector Search and prepend as context."""
+    last_message = state["messages"][-1].content
+    chunks = get_relevant_chunks(last_message)
+    context = "\n\n".join(chunks)
+    from langchain_core.messages import SystemMessage
+    return {"messages": [SystemMessage(content=f"Relevant context:\n{context}")]}
+{{ end }}
+
+
+# --- Graph ---
+
+def build_graph():
+    builder = StateGraph(MessagesState)
+
+{{ if (eq .input_use_vector_search "yes") }}
+    builder.add_node("retriever", retriever_node)
+{{ end }}
+    builder.add_node("agent", agent_node)
+
+{{ if (eq .input_use_vector_search "yes") }}
+    builder.add_edge(START, "retriever")
+    builder.add_edge("retriever", "agent")
+{{ else }}
+    builder.add_edge(START, "agent")
+{{ end }}
+    builder.add_edge("agent", END)
+
+{{ if (eq .input_use_lakebase "yes") }}
+    return builder.compile(checkpointer=get_checkpointer())
+{{ else }}
+    return builder.compile()
+{{ end }}
+
+
+graph = build_graph()

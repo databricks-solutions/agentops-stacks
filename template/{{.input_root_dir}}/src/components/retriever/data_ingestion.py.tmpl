@@ -1,0 +1,59 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # Data Ingestion
+# MAGIC Load raw documents into a Delta table for downstream chunking and indexing.
+
+# COMMAND ----------
+
+# MAGIC %pip install -e /Workspace/${bundle.path}
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+dbutils.widgets.text("catalog", "", "Unity Catalog name")
+dbutils.widgets.text("schema", "", "Schema name")
+
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
+
+# COMMAND ----------
+
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"USE SCHEMA {schema}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Load source documents
+# MAGIC Replace this section with your data loading logic.
+# MAGIC Common patterns:
+# MAGIC - Read from a UC Volume: `spark.read.format("binaryFile").load(f"/Volumes/{catalog}/{schema}/raw_docs/")`
+# MAGIC - Read from cloud storage: `spark.read.format("binaryFile").load("s3://bucket/path/")`
+# MAGIC - Read from an existing Delta table: `spark.table("source_catalog.source_schema.documents")`
+
+# COMMAND ----------
+
+# TODO: Replace with your ingestion logic
+raw_docs_path = f"/Volumes/{catalog}/{schema}/artifacts/raw_docs"
+
+raw_df = (
+    spark.read.format("binaryFile")
+    .option("pathGlobFilter", "*.pdf")
+    .load(raw_docs_path)
+)
+
+display(raw_df.limit(5))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Write to Delta table
+
+# COMMAND ----------
+
+table_name = "{{ .input_project_name }}_raw_docs"
+
+raw_df.write.mode("overwrite").saveAsTable(table_name)
+
+print(f"Wrote {raw_df.count()} documents to {catalog}.{schema}.{table_name}")

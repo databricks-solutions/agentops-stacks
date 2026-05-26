@@ -1,0 +1,30 @@
+"""Tool selection for the {{ .input_initial_agent_name }} agent.
+
+Each agent picks which shared components to use. Edit this file to
+customize which tools this agent has access to.
+"""
+
+{{ if (eq .input_use_local_tools "yes") }}
+from src.components.tools.example_tool import example_tool
+{{ end }}
+{{ if (eq .input_use_genie "yes") }}
+from src.components.tools.genie_tool import query_genie
+{{ end }}
+{{ if (eq .input_use_uc_functions "yes") }}
+from src.components.uc_functions.registry import get_uc_tools
+{{ end }}
+
+
+def get_tools() -> list:
+    """Return the tools available to this agent."""
+    tools = []
+{{ if (eq .input_use_local_tools "yes") }}
+    tools.append(example_tool)
+{{ end }}
+{{ if (eq .input_use_genie "yes") }}
+    tools.append(query_genie)
+{{ end }}
+{{ if (eq .input_use_uc_functions "yes") }}
+    tools.extend(get_uc_tools())
+{{ end }}
+    return tools

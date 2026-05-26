@@ -8,9 +8,55 @@ variables:
   schema:
     description: Schema within the catalog for resources, traces, and artifacts
     default: {{ .input_project_name }}
+{{ if (eq .input_use_vector_search "yes") }}  embedding_model_endpoint:
+    description: Foundation Model API endpoint for computing embeddings
+    default: databricks-gte-large-en
+  vs_columns_to_sync:
+    description: Comma-separated columns to sync to the Vector Search index
+    default: "chunk_id,content,doc_uri"
+{{ end }}
 
 include:
-  - ./resources/*.yml
+  - ./resources/experiment.yml
+  - ./resources/schemas.yml
+  - ./resources/volumes.yml
+{{ if (eq .input_use_vector_search "yes") }}  - ./resources/vector_search.yml
+{{ end }}
+{{ if (eq .input_use_lakebase "yes") }}  - ./resources/lakebase.yml
+{{ end }}
+
+resources:
+  apps:
+    {{ .input_initial_agent_name }}:
+      name: "{{ .input_project_name }}-{{ .input_initial_agent_name }}"
+      description: "{{ .input_initial_agent_name }} agent — {{ .input_project_name }}"
+      source_code_path: ./
+      config:
+        command: ["uv", "run", "start-app"]
+        env:
+          - name: MLFLOW_TRACKING_URI
+            value: "databricks"
+          - name: MLFLOW_REGISTRY_URI
+            value: "databricks-uc"
+          - name: API_PROXY
+            value: "http://localhost:8000/invocations"
+          - name: CHAT_APP_PORT
+            value: "3000"
+          - name: CHAT_PROXY_TIMEOUT_SECONDS
+            value: "300"
+          - name: MLFLOW_EXPERIMENT_ID
+            value_from: "experiment"
+          - name: CATALOG
+            value: "${var.catalog}"
+          - name: SCHEMA
+            value: "${var.schema}"
+          - name: AGENT_MODULE
+            value: "src.agents.{{ .input_initial_agent_name }}.agent"
+      resources:
+        - name: "experiment"
+          experiment:
+            experiment_id: ""
+            permission: "CAN_MANAGE"
 
 sync:
   include:
@@ -29,18 +75,8 @@ targets:
     mode: production
     workspace:
       host: # TODO: set staging workspace URL
-      # Recommended for production targets: set an explicit root_path so deploys
-      # are deterministic regardless of who or what deploys (CI SP vs. local user).
-      # Typically uses the deploying identity's home path. For SP-driven CI/CD:
-      #   root_path: /Workspace/Users/<sp-application-id>/.bundle/${bundle.name}/${bundle.target}
-      # For user-deployed targets:
-      #   root_path: /Workspace/Users/<user-email>/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: {{ .input_project_name }}_staging
-    # Production mode requires run_as. Default to the deploying user; switch to a
-    # service principal before going to real production:
-    #   run_as:
-    #     service_principal_name: <sp-application-id>
     run_as:
       user_name: ${workspace.current_user.userName}
 
@@ -48,17 +84,7 @@ targets:
     mode: production
     workspace:
       host: # TODO: set prod workspace URL
-      # Recommended for production targets: set an explicit root_path so deploys
-      # are deterministic regardless of who or what deploys (CI SP vs. local user).
-      # Typically uses the deploying identity's home path. For SP-driven CI/CD:
-      #   root_path: /Workspace/Users/<sp-application-id>/.bundle/${bundle.name}/${bundle.target}
-      # For user-deployed targets:
-      #   root_path: /Workspace/Users/<user-email>/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: {{ .input_project_name }}_prod
-    # Production mode requires run_as. Default to the deploying user; switch to a
-    # service principal before going to real production:
-    #   run_as:
-    #     service_principal_name: <sp-application-id>
     run_as:
       user_name: ${workspace.current_user.userName}

@@ -1,0 +1,122 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # Data Preparation
+# MAGIC Chunk documents and sync to a Vector Search index.
+
+# COMMAND ----------
+
+# MAGIC %pip install -e /Workspace/${bundle.path}
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+dbutils.widgets.text("catalog", "", "Unity Catalog name")
+dbutils.widgets.text("schema", "", "Schema name")
+dbutils.widgets.text("embedding_model_endpoint", "databricks-gte-large-en", "Embedding model endpoint")
+dbutils.widgets.text("vs_columns_to_sync", "chunk_id,content,doc_uri", "Columns to sync to VS index")
+
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
+embedding_model_endpoint = dbutils.widgets.get("embedding_model_endpoint")
+vs_columns_to_sync = [c.strip() for c in dbutils.widgets.get("vs_columns_to_sync").split(",")]
+
+# COMMAND ----------
+
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"USE SCHEMA {schema}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Chunk documents
+# MAGIC Replace the chunking logic below with your preferred strategy.
+
+# COMMAND ----------
+
+from pyspark.sql import functions as F
+
+source_table = "{{ .input_project_name }}_raw_docs"
+chunked_table = "{{ .input_project_name }}_chunked_docs"
+
+# TODO: Replace with real chunking logic (e.g., LangChain text splitters, unstructured.io)
+chunked_df = (
+    spark.table(source_table)
+    .withColumn("content", F.col("content").cast("string"))
+    .withColumn("chunk_id", F.monotonically_increasing_id())
+    .withColumn("doc_uri", F.col("path"))
+    .select("chunk_id", "content", "doc_uri")
+)
+
+chunked_df.write.mode("overwrite").saveAsTable(chunked_table)
+
+print(f"Wrote {chunked_df.count()} chunks to {catalog}.{schema}.{chunked_table}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Enable Change Data Feed
+
+# COMMAND ----------
+
+spark.sql(f"ALTER TABLE {chunked_table} SET TBLPROPERTIES (delta.enableChangeDataFeed = true)")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Create Vector Search index
+# MAGIC The endpoint is declared in `resources/vector_search.yml` and deployed by `databricks bundle deploy`.
+# MAGIC This notebook creates the index imperatively because it depends on the source table existing first.
+
+# COMMAND ----------
+
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.vectorsearch import (
+    DeltaSyncVectorIndexSpecRequest,
+    EmbeddingSourceColumn,
+    PipelineType,
+)
+
+w = WorkspaceClient()
+
+VS_ENDPOINT_NAME = "{{ .input_project_name }}_vs_endpoint"
+VS_INDEX_NAME = f"{catalog}.{schema}.{{ .input_project_name }}_vs_index"
+
+# COMMAND ----------
+
+# Check if the index already exists
+existing_indexes = [
+    idx.name for idx in w.vector_search_indexes.list_indexes(VS_ENDPOINT_NAME)
+]
+
+if VS_INDEX_NAME not in existing_indexes:
+    w.vector_search_indexes.create_index(
+        name=VS_INDEX_NAME,
+        endpoint_name=VS_ENDPOINT_NAME,
+        primary_key="chunk_id",
+        index_type="DELTA_SYNC",
+        delta_sync_index_spec=DeltaSyncVectorIndexSpecRequest(
+            source_table=f"{catalog}.{schema}.{chunked_table}",
+            pipeline_type=PipelineType.TRIGGERED,
+            embedding_source_columns=[
+                EmbeddingSourceColumn(
+                    name="content",
+                    embedding_model_endpoint_name=embedding_model_endpoint,
+                )
+            ],
+            columns_to_sync=vs_columns_to_sync,
+        ),
+    )
+    print(f"Created VS index: {VS_INDEX_NAME}")
+else:
+    print(f"VS index already exists: {VS_INDEX_NAME}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Trigger initial sync
+
+# COMMAND ----------
+
+w.vector_search_indexes.sync_index(index_name=VS_INDEX_NAME)
+print(f"Sync triggered for: {VS_INDEX_NAME}")
