@@ -2,10 +2,10 @@
 #
 # agentops-stacks plugin installer
 #
-# Installs the agentops-stacks skill (SKILL.md only) into a project at
-# .claude/skills/agentops-stacks/. The skill shells out to `databricks bundle
-# init` against the agentops-stacks repo — the template tree and schema live
-# at the repo root, not next to the skill.
+# Installs agentops-stacks skills (SKILL.md files) into a project at
+# .claude/skills/<skill-name>/. Skills shell out to the Databricks CLI and
+# reference the template tree, schema, and workflow definitions from this repo
+# at run time — nothing is vendored next to the skill files.
 #
 # Usage:
 #   ./install_skills.sh                              # install from local repo
@@ -42,7 +42,7 @@ show_help() {
     echo "  --profile <name>        Databricks CLI profile (default: DEFAULT or \$DATABRICKS_CONFIG_PROFILE)"
     echo ""
     echo "Examples:"
-    echo "  ./install_skills.sh                                # Install agentops-stacks skill"
+    echo "  ./install_skills.sh                                # Install all agentops-stacks skills"
     echo "  ./install_skills.sh --install-to-genie             # Install + upload to workspace"
     echo "  ./install_skills.sh --install-to-genie --profile prod"
     echo ""
