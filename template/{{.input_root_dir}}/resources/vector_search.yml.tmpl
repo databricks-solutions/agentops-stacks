@@ -1,3 +1,11 @@
+variables:
+  embedding_model_endpoint:
+    description: Foundation Model API endpoint for computing embeddings
+    default: databricks-gte-large-en
+  vs_columns_to_sync:
+    description: Comma-separated columns to sync to the Vector Search index
+    default: "chunk_id,content,doc_uri"
+
 resources:
   vector_search_endpoints:
     vs_endpoint:

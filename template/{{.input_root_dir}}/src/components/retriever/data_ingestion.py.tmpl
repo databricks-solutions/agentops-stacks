@@ -6,11 +6,6 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -e /Workspace/${bundle.path}
-# MAGIC %restart_python
-
-# COMMAND ----------
-
 dbutils.widgets.text("catalog", "", "Unity Catalog name")
 dbutils.widgets.text("schema", "", "Schema name")
 

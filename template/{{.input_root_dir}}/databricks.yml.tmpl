@@ -8,13 +8,7 @@ variables:
   schema:
     description: Schema within the catalog for resources, traces, and artifacts
     default: {{ .input_project_name }}
-{{ if (eq .input_use_vector_search "yes") }}  embedding_model_endpoint:
-    description: Foundation Model API endpoint for computing embeddings
-    default: databricks-gte-large-en
-  vs_columns_to_sync:
-    description: Comma-separated columns to sync to the Vector Search index
-    default: "chunk_id,content,doc_uri"
-{{ end }}
+
 
 include:
   - ./resources/experiment.yml
@@ -22,13 +16,13 @@ include:
   - ./resources/volumes.yml
 {{ if (eq .input_use_vector_search "yes") }}  - ./resources/vector_search.yml
 {{ end }}
-{{ if (eq .input_use_lakebase "yes") }}  - ./resources/lakebase.yml
+{{ if (and (eq .input_use_vector_search "yes") (eq .input_has_chunked_table "no")) }}  - ./resources/data_pipeline.yml
 {{ end }}
 
 resources:
   apps:
     {{ .input_initial_agent_name }}:
-      name: "{{ .input_project_name }}-{{ .input_initial_agent_name }}"
+      name: "{{ replace .input_project_name "_" "-" }}-{{ replace .input_initial_agent_name "_" "-" }}"
       description: "{{ .input_initial_agent_name }} agent — {{ .input_project_name }}"
       source_code_path: ./
       config:
@@ -55,12 +49,13 @@ resources:
       resources:
         - name: "experiment"
           experiment:
-            experiment_id: ""
+            experiment_id: ${resources.experiments.experiment.id}
             permission: "CAN_MANAGE"
 
 sync:
   include:
     - pyproject.toml
+    - src/**
 
 targets:
   dev:
