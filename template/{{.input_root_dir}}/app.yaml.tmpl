@@ -1,7 +1,0 @@
-command: ["uv", "run", "python", "src/agents/{{ .input_initial_agent_name }}/app/start_server.py"]
-
-env:
-  - name: CATALOG
-    value: "${var.catalog}"
-  - name: SCHEMA
-    value: "${var.schema}"

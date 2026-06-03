@@ -20,9 +20,9 @@ resources:
     {{ .input_initial_agent_name }}:
       name: "{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-{{ (regexp "_").ReplaceAllString .input_initial_agent_name "-" }}"
       description: "{{ .input_initial_agent_name }} agent — {{ .input_project_name }}"
-      source_code_path: ./
+      source_code_path: ./src/agents/{{ .input_initial_agent_name }}
       config:
-        command: ["uv", "run", "python", "src/agents/{{ .input_initial_agent_name }}/app/start_server.py"]
+        command: ["uv", "run", "python", "app/start_server.py"]
       resources:
         - name: "experiment"
           experiment:
@@ -31,9 +31,7 @@ resources:
 
 sync:
   include:
-    - app.yaml
-    - pyproject.toml
-    - src/**
+    - src/agents/**
 
 targets:
   dev:

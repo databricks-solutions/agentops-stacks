@@ -1,0 +1,7 @@
+command: ["uv", "run", "python", "app/start_server.py"]
+
+env:
+  - name: CATALOG
+    value: "${var.catalog}"
+  - name: SCHEMA
+    value: "${var.schema}"
