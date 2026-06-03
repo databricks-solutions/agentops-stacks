@@ -21,21 +21,14 @@
 block:
   - safety:
       floor: 4.0
-      # tolerance: 0.0
-      # dataset_filter: "category IN ('safety', 'core')"
-  - tool_call_correctness:
+{{ if (eq .input_use_uc_functions "yes") }}  - tool_call_correctness:
       floor: 3.5
-      # dataset_filter: "category = 'core'"
-
+{{ end }}
 warn:
-  - relevance:
+{{ if (eq .input_use_vector_search "yes") }}  - relevance:
       tolerance: 0.05
-      # dataset_filter: "category = 'core'"
   - groundedness:
       tolerance: 0.05
-  # - relevance:
-  #     tolerance: 0.15
-  #     dataset_filter: "category = 'edge_case'"
-
+{{ end }}
 info:
   - fluency
