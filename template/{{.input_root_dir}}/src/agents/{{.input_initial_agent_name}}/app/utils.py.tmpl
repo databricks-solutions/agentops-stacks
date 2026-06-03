@@ -1,0 +1,69 @@
+"""Utilities for the {{ .input_initial_agent_name }} agent server.
+
+Stream processing, session handling, and workspace client helpers.
+"""
+
+import logging
+from typing import Any, AsyncGenerator, AsyncIterator, Optional
+
+from databricks.sdk import WorkspaceClient
+from databricks_langchain.chat_models import json
+from langchain.messages import AIMessageChunk, ToolMessage
+from mlflow.genai.agent_server import get_request_headers
+from mlflow.types.responses import (
+    ResponsesAgentRequest,
+    ResponsesAgentStreamEvent,
+    create_text_delta,
+    output_to_responses_items_stream,
+)
+
+
+def get_session_id(request: ResponsesAgentRequest) -> str | None:
+    """Extract session/conversation ID from the request."""
+    ctx = getattr(request, "context", None)
+    if ctx and getattr(ctx, "conversation_id", None):
+        return ctx.conversation_id
+    custom = getattr(request, "custom_inputs", None)
+    if custom and isinstance(custom, dict):
+        return custom.get("session_id")
+    return None
+
+
+def get_user_workspace_client() -> WorkspaceClient:
+    """Get a WorkspaceClient authenticated as the requesting user (on-behalf-of)."""
+    token = get_request_headers().get("x-forwarded-access-token")
+    return WorkspaceClient(token=token, auth_type="pat")
+
+
+def get_databricks_host() -> Optional[str]:
+    """Get the Databricks workspace host URL."""
+    try:
+        w = WorkspaceClient()
+        return w.config.host
+    except Exception as e:
+        logging.exception(f"Error getting Databricks host: {e}")
+        return None
+
+
+async def process_agent_astream_events(
+    async_stream: AsyncIterator[Any],
+) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
+    """Process LangGraph agent stream events into ResponsesAgentStreamEvent objects."""
+    async for event in async_stream:
+        if event[0] == "updates":
+            for node_data in event[1].values():
+                if len(node_data.get("messages", [])) > 0:
+                    for msg in node_data["messages"]:
+                        if isinstance(msg, ToolMessage) and not isinstance(msg.content, str):
+                            msg.content = json.dumps(msg.content)
+                    for item in output_to_responses_items_stream(node_data["messages"]):
+                        yield item
+        elif event[0] == "messages":
+            try:
+                chunk = event[1][0]
+                if isinstance(chunk, AIMessageChunk) and (content := chunk.content):
+                    yield ResponsesAgentStreamEvent(
+                        **create_text_delta(delta=content, item_id=chunk.id)
+                    )
+            except Exception as e:
+                logging.exception(f"Error processing stream event: {e}")

@@ -1,0 +1,24 @@
+"""Tool selection for the {{ .input_initial_agent_name }} agent.
+
+Each agent picks which tools to use. Edit this file to
+customize which tools this agent has access to.
+"""
+
+{{ if (eq .input_use_uc_functions "yes") }}
+# TODO: Add your UC function names here after running the registration notebook.
+# Format: ["catalog.schema.function_name", ...]
+UC_FUNCTION_NAMES = [
+    # "${var.catalog}.${var.schema}.example_function",
+]
+{{ end }}
+
+def get_tools() -> list:
+    """Return the tools available to this agent."""
+    tools = []
+{{ if (eq .input_use_uc_functions "yes") }}
+    if UC_FUNCTION_NAMES:
+        from databricks_langchain.uc_ai import UCFunctionToolkit
+        toolkit = UCFunctionToolkit(function_names=UC_FUNCTION_NAMES)
+        tools.extend(toolkit.tools)
+{{ end }}
+    return tools

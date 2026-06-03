@@ -1,0 +1,22 @@
+"""Registry for Unity Catalog functions as LangGraph tools.
+
+Shared component — any agent can import tools from this registry.
+"""
+
+from databricks_langchain.uc_ai import UCFunctionToolkit
+
+
+# TODO: List the fully-qualified UC function names your agents should use.
+# Format: ["catalog.schema.function_name", ...]
+UC_FUNCTION_NAMES = [
+    # "${var.catalog}.${var.schema}.example_function",
+]
+
+
+def get_uc_tools() -> list:
+    """Return UC functions wrapped as LangChain tools for use in LangGraph."""
+    if not UC_FUNCTION_NAMES:
+        return []
+
+    toolkit = UCFunctionToolkit(function_names=UC_FUNCTION_NAMES)
+    return toolkit.get_tools()

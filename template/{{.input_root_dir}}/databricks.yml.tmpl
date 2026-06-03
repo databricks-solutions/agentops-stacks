@@ -9,12 +9,31 @@ variables:
     description: Schema within the catalog for resources, traces, and artifacts
     default: {{ .input_project_name }}
 
+
 include:
-  - ./resources/*.yml
+  - ./resources/experiment.yml
+  - ./resources/schemas.yml
+  - ./resources/volumes.yml
+
+resources:
+  apps:
+    {{ .input_initial_agent_name }}:
+      name: "{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-{{ (regexp "_").ReplaceAllString .input_initial_agent_name "-" }}"
+      description: "{{ .input_initial_agent_name }} agent — {{ .input_project_name }}"
+      source_code_path: ./
+      config:
+        command: ["uv", "run", "python", "src/agents/{{ .input_initial_agent_name }}/app/start_server.py"]
+      resources:
+        - name: "experiment"
+          experiment:
+            experiment_id: ${resources.experiments.experiment.id}
+            permission: "CAN_MANAGE"
 
 sync:
   include:
+    - app.yaml
     - pyproject.toml
+    - src/**
 
 targets:
   dev:
@@ -29,18 +48,8 @@ targets:
     mode: production
     workspace:
       host: # TODO: set staging workspace URL
-      # Recommended for production targets: set an explicit root_path so deploys
-      # are deterministic regardless of who or what deploys (CI SP vs. local user).
-      # Typically uses the deploying identity's home path. For SP-driven CI/CD:
-      #   root_path: /Workspace/Users/<sp-application-id>/.bundle/${bundle.name}/${bundle.target}
-      # For user-deployed targets:
-      #   root_path: /Workspace/Users/<user-email>/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: {{ .input_project_name }}_staging
-    # Production mode requires run_as. Default to the deploying user; switch to a
-    # service principal before going to real production:
-    #   run_as:
-    #     service_principal_name: <sp-application-id>
     run_as:
       user_name: ${workspace.current_user.userName}
 
@@ -48,17 +57,7 @@ targets:
     mode: production
     workspace:
       host: # TODO: set prod workspace URL
-      # Recommended for production targets: set an explicit root_path so deploys
-      # are deterministic regardless of who or what deploys (CI SP vs. local user).
-      # Typically uses the deploying identity's home path. For SP-driven CI/CD:
-      #   root_path: /Workspace/Users/<sp-application-id>/.bundle/${bundle.name}/${bundle.target}
-      # For user-deployed targets:
-      #   root_path: /Workspace/Users/<user-email>/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: {{ .input_project_name }}_prod
-    # Production mode requires run_as. Default to the deploying user; switch to a
-    # service principal before going to real production:
-    #   run_as:
-    #     service_principal_name: <sp-application-id>
     run_as:
       user_name: ${workspace.current_user.userName}
