@@ -4,16 +4,35 @@ Composes shared components into a compiled graph.
 Edit tools.py to control tool selection.
 """
 
+import os
+
 from langgraph.graph import START, END, StateGraph, MessagesState
 from databricks_langchain import ChatDatabricks
-from src.agents.{{ .input_initial_agent_name }}.tools import get_tools
+from tools import get_tools
 {{ if (eq .input_use_vector_search "yes") }}
-from src.components.retriever.search import get_relevant_chunks
+from databricks_langchain import DatabricksVectorSearch
+from langchain_core.messages import SystemMessage
 {{ end }}
 {{ if (eq .input_use_lakebase "yes") }}
-from src.components.memory.checkpointer import get_checkpointer
+from checkpointer import get_checkpointer  # TODO: inline when lakebase is implemented
 {{ end }}
 
+{{ if (eq .input_use_vector_search "yes") }}
+# --- Vector Search retriever ---
+
+def get_relevant_chunks(query: str, k: int = 5) -> list[str]:
+    """Query the VS index and return chunk texts."""
+    from databricks.sdk import WorkspaceClient
+    w = WorkspaceClient()
+    vs_index = f"{os.environ['CATALOG']}.{os.environ['SCHEMA']}.{{ .input_project_name }}_vs_index"
+    retriever = DatabricksVectorSearch(
+        index_name=vs_index,
+        columns=["content", "doc_uri"],
+        workspace_client=w,
+    ).as_retriever(search_kwargs={"k": k})
+    docs = retriever.invoke(query)
+    return [doc.page_content for doc in docs]
+{{ end }}
 
 # --- Nodes ---
 
@@ -27,13 +46,11 @@ def agent_node(state: MessagesState) -> dict:
     return {"messages": [response]}
 
 {{ if (eq .input_use_vector_search "yes") }}
-
 def retriever_node(state: MessagesState) -> dict:
     """Retrieve relevant chunks from Vector Search and prepend as context."""
     last_message = state["messages"][-1].content
     chunks = get_relevant_chunks(last_message)
     context = "\n\n".join(chunks)
-    from langchain_core.messages import SystemMessage
     return {"messages": [SystemMessage(content=f"Relevant context:\n{context}")]}
 {{ end }}
 

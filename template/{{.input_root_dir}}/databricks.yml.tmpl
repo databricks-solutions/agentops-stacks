@@ -22,11 +22,11 @@ include:
 resources:
   apps:
     {{ .input_initial_agent_name }}:
-      name: "{{ replace .input_project_name "_" "-" }}-{{ replace .input_initial_agent_name "_" "-" }}"
+      name: "{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-{{ (regexp "_").ReplaceAllString .input_initial_agent_name "-" }}"
       description: "{{ .input_initial_agent_name }} agent — {{ .input_project_name }}"
       source_code_path: ./
       config:
-        command: ["uv", "run", "start-app"]
+        command: ["uv", "run", "python", "src/agents/{{ .input_initial_agent_name }}/app/start_server.py"]
         env:
           - name: MLFLOW_TRACKING_URI
             value: "databricks"
@@ -54,6 +54,7 @@ resources:
 
 sync:
   include:
+    - app.yaml
     - pyproject.toml
     - src/**
 

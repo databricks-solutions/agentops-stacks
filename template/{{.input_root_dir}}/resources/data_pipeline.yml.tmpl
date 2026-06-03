@@ -1,55 +1,14 @@
 resources:
-  jobs:
+  pipelines:
     data_pipeline:
       name: ${bundle.target}-{{ .input_project_name }}-data-pipeline
-
-      tasks:
-{{ if (eq .input_has_chunked_table "no") }}        - task_key: ingest
-          environment_key: default
-          notebook_task:
-            notebook_path: ../src/components/retriever/data_ingestion.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-
-        - task_key: chunk
-          depends_on:
-            - task_key: ingest
-          environment_key: default
-          notebook_task:
-            notebook_path: ../src/components/retriever/data_chunking.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-
-        - task_key: index_sync
-          depends_on:
-            - task_key: chunk
-          environment_key: default
-          notebook_task:
-            notebook_path: ../src/components/retriever/index_sync.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              embedding_model_endpoint: ${var.embedding_model_endpoint}
-              vs_columns_to_sync: ${var.vs_columns_to_sync}
-{{ else }}        - task_key: index_sync
-          environment_key: default
-          notebook_task:
-            notebook_path: ../src/components/retriever/index_sync.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              embedding_model_endpoint: ${var.embedding_model_endpoint}
-              vs_columns_to_sync: ${var.vs_columns_to_sync}
-{{ end }}
-      environments:
-        - environment_key: default
-          spec:
-            client: "4"
-            dependencies:
-              - databricks-vectorsearch
-
-      email_notifications:
-        on_failure:
-          - ${workspace.current_user.userName}
+      catalog: ${var.catalog}
+      target: ${var.schema}
+      libraries:
+        - notebook:
+            path: ../src/components/retriever/data_pipeline.py
+      configuration:
+        catalog: ${var.catalog}
+        schema: ${var.schema}
+      channel: PREVIEW
+      development: true
