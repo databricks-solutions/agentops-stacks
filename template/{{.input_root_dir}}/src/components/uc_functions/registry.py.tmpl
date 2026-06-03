@@ -1,22 +1,73 @@
-"""Registry for Unity Catalog functions as LangGraph tools.
+# Databricks notebook source
 
-Shared component — any agent can import tools from this registry.
-"""
+# MAGIC %md
+# MAGIC # UC Function Registration
+# MAGIC Loops through SQL definition files and registers them as Unity Catalog functions.
+# MAGIC Run this notebook to create or update all UC functions used by agents.
 
-from databricks_langchain.uc_ai import UCFunctionToolkit
+# COMMAND ----------
 
+dbutils.widgets.text("catalog", "", "Unity Catalog name")
+dbutils.widgets.text("schema", "", "Schema name")
 
-# TODO: List the fully-qualified UC function names your agents should use.
-# Format: ["catalog.schema.function_name", ...]
-UC_FUNCTION_NAMES = [
-    # "${var.catalog}.${var.schema}.example_function",
-]
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
 
+# COMMAND ----------
 
-def get_uc_tools() -> list:
-    """Return UC functions wrapped as LangChain tools for use in LangGraph."""
-    if not UC_FUNCTION_NAMES:
-        return []
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"USE SCHEMA {schema}")
 
-    toolkit = UCFunctionToolkit(function_names=UC_FUNCTION_NAMES)
-    return toolkit.get_tools()
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Register functions from SQL definitions
+
+# COMMAND ----------
+
+import os
+import glob
+
+definitions_dir = os.path.join(os.path.dirname(dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()), "definitions")
+
+# Find all SQL files in the definitions directory
+notebook_dir = os.path.dirname(
+    "/Workspace" + dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+)
+sql_dir = os.path.join(notebook_dir, "definitions")
+
+sql_files = [f for f in os.listdir(sql_dir) if f.endswith(".sql")]
+print(f"Found {len(sql_files)} SQL definition(s) in {sql_dir}")
+
+# COMMAND ----------
+
+# Register each function
+for sql_file in sorted(sql_files):
+    filepath = os.path.join(sql_dir, sql_file)
+    with open(filepath, "r") as f:
+        sql = f.read()
+
+    # Replace variable references with actual values
+    sql = sql.replace("${var.catalog}", catalog)
+    sql = sql.replace("${var.schema}", schema)
+
+    func_name = sql_file.replace(".sql", "")
+    print(f"Registering: {catalog}.{schema}.{func_name}")
+    try:
+        spark.sql(sql)
+        print(f"  OK")
+    except Exception as e:
+        print(f"  ERROR: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Verify registered functions
+
+# COMMAND ----------
+
+functions = spark.sql(f"SHOW FUNCTIONS IN {catalog}.{schema}").collect()
+uc_functions = [f.function for f in functions if not f.function.startswith("builtin")]
+print(f"\nRegistered UC functions in {catalog}.{schema}:")
+for fn in sorted(uc_functions):
+    print(f"  {fn}")
