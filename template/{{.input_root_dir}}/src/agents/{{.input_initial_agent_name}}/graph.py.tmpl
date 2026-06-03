@@ -10,9 +10,29 @@ from langgraph.graph import START, END, StateGraph, MessagesState
 from langgraph.prebuilt import ToolNode
 from databricks_langchain import ChatDatabricks
 from tools import get_tools
+{{ if (eq .input_use_vector_search "yes") }}
+from databricks_langchain import DatabricksVectorSearch
+from langchain_core.messages import SystemMessage, HumanMessage
+{{ end }}
 
 LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
 
+{{ if (eq .input_use_vector_search "yes") }}
+# --- Vector Search retriever ---
+
+def get_relevant_chunks(query: str, k: int = 5) -> list[str]:
+    """Query the VS index and return chunk texts."""
+    from databricks.sdk import WorkspaceClient
+    w = WorkspaceClient()
+    vs_index = f"{os.environ['CATALOG']}.{os.environ['SCHEMA']}.{{ .input_project_name }}_vs_index"
+    retriever = DatabricksVectorSearch(
+        index_name=vs_index,
+        columns=["content", "doc_uri"],
+        workspace_client=w,
+    ).as_retriever(search_kwargs={"k": k})
+    docs = retriever.invoke(query)
+    return [doc.page_content for doc in docs]
+{{ end }}
 
 # --- Nodes ---
 
@@ -25,6 +45,21 @@ def agent_node(state: MessagesState) -> dict:
     response = llm.invoke(state["messages"])
     return {"messages": [response]}
 
+{{ if (eq .input_use_vector_search "yes") }}
+def retriever_node(state: MessagesState) -> dict:
+    """Retrieve relevant chunks from Vector Search and prepend as context."""
+    # Find the last human message for the retrieval query
+    query = ""
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, HumanMessage):
+            query = msg.content
+            break
+    if not query:
+        return {"messages": []}
+    chunks = get_relevant_chunks(query)
+    context = "\n\n".join(chunks)
+    return {"messages": [SystemMessage(content=f"Relevant context:\n{context}")]}
+{{ end }}
 
 def should_continue(state: MessagesState) -> str:
     """Route to tool_node if the last message has tool calls, otherwise end."""
@@ -40,11 +75,19 @@ def build_graph():
     tools = get_tools()
     builder = StateGraph(MessagesState)
 
+{{ if (eq .input_use_vector_search "yes") }}
+    builder.add_node("retriever", retriever_node)
+{{ end }}
     builder.add_node("agent", agent_node)
     if tools:
         builder.add_node("tool_node", ToolNode(tools))
 
+{{ if (eq .input_use_vector_search "yes") }}
+    builder.add_edge(START, "retriever")
+    builder.add_edge("retriever", "agent")
+{{ else }}
     builder.add_edge(START, "agent")
+{{ end }}
 
     if tools:
         builder.add_conditional_edges("agent", should_continue, {"tool_node": "tool_node", END: END})

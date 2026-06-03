@@ -1,0 +1,63 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # RAG Data Pipeline (DLT)
+# MAGIC Ingests raw documents from a UC Volume and chunks them into a streaming table
+# MAGIC that Vector Search indexes automatically.
+
+# COMMAND ----------
+
+import dlt
+from pyspark.sql import functions as F
+
+VOLUME_PATH = f"/Volumes/{spark.conf.get('catalog')}/{spark.conf.get('schema')}/artifacts/raw_docs"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Raw documents
+# MAGIC Replace the source path or format for your use case.
+# MAGIC Common patterns:
+# MAGIC - UC Volume: `/Volumes/{catalog}/{schema}/raw_docs/`
+# MAGIC - Cloud storage: `s3://bucket/path/`
+# MAGIC - Existing table: `spark.readStream.table("source_catalog.source_schema.documents")`
+
+# COMMAND ----------
+
+@dlt.table(
+    name="{{ .input_project_name }}_raw_docs",
+    comment="Raw documents ingested from source",
+)
+def raw_docs():
+    # TODO: Replace with your ingestion logic
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "binaryFile")
+        .load(VOLUME_PATH)
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Chunked documents
+# MAGIC Replace the chunking logic below with your preferred strategy
+# MAGIC (e.g., LangChain text splitters, unstructured.io, pandas UDFs).
+# MAGIC
+# MAGIC This is a streaming table so Vector Search can delta-sync from it.
+
+# COMMAND ----------
+
+@dlt.table(
+    name="{{ .input_project_name }}_chunked_docs",
+    comment="Chunked documents for Vector Search indexing",
+    table_properties={"delta.enableChangeDataFeed": "true"},
+)
+def chunked_docs():
+    # TODO: Replace with real chunking logic
+    return (
+        dlt.read_stream("{{ .input_project_name }}_raw_docs")
+        .withColumn("content", F.col("content").cast("string"))
+        .withColumn("chunk_id", F.expr("uuid()"))
+        .withColumn("doc_uri", F.col("path"))
+        .select("chunk_id", "content", "doc_uri")
+    )

@@ -1,0 +1,27 @@
+variables:
+  embedding_model_endpoint:
+    description: Foundation Model API endpoint for computing embeddings
+    default: databricks-gte-large-en
+
+resources:
+  vector_search_endpoints:
+    vs_endpoint:
+      name: {{ .input_project_name }}_vs_endpoint
+      endpoint_type: STANDARD
+
+  vector_search_indexes:
+    vs_index:
+      name: ${var.catalog}.${var.schema}.{{ .input_project_name }}_vs_index
+      endpoint_name: {{ .input_project_name }}_vs_endpoint
+      primary_key: chunk_id
+      index_type: DELTA_SYNC
+      delta_sync_index_spec:
+        source_table: ${var.catalog}.${var.schema}.{{ .input_project_name }}_chunked_docs
+        embedding_source_columns:
+          - name: content
+            embedding_model_endpoint_name: ${var.embedding_model_endpoint}
+        pipeline_type: TRIGGERED
+        columns_to_sync:
+          - chunk_id
+          - content
+          - doc_uri
