@@ -2,16 +2,18 @@
 
 # MAGIC %md
 # MAGIC # UC Function Registration
-# MAGIC Registers SQL functions from the `definitions/` folder into Unity Catalog.
-# MAGIC Run this notebook to create or update all UC functions used by agents.
+# MAGIC Registers SQL functions from the `definitions/` folder into Unity Catalog,
+# MAGIC then grants EXECUTE to the app service principal.
 
 # COMMAND ----------
 
 dbutils.widgets.text("catalog", "", "Unity Catalog name")
 dbutils.widgets.text("schema", "", "Schema name")
+dbutils.widgets.text("app_sp", "", "App service principal client ID (for EXECUTE grant)")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+app_sp = dbutils.widgets.get("app_sp")
 
 # COMMAND ----------
 
@@ -28,19 +30,28 @@ spark.sql(f"USE SCHEMA {schema}")
 from pathlib import Path
 
 
-def register_uc_functions(sql_dir: Path, catalog: str, schema: str):
-    """Read all .sql files in sql_dir, substitute catalog/schema, and execute."""
+def register_uc_functions(sql_dir: Path, catalog: str, schema: str, grant_to: str = None):
+    """Read .sql files, register as UC functions, and optionally grant EXECUTE."""
     sql_files = sorted(sql_dir.glob("*.sql"))
     print(f"Found {len(sql_files)} SQL definition(s) in {sql_dir}\n")
 
     for sql_file in sql_files:
         sql = sql_file.read_text().replace("${var.catalog}", catalog).replace("${var.schema}", schema)
-        print(f"Registering: {catalog}.{schema}.{sql_file.stem}...", end=" ")
+        func_name = f"{catalog}.{schema}.{sql_file.stem}"
+        print(f"Registering: {func_name}...", end=" ")
         try:
             spark.sql(sql)
             print("OK")
         except Exception as e:
             print(f"ERROR: {e}")
+            continue
+
+        if grant_to:
+            try:
+                spark.sql(f"GRANT EXECUTE ON FUNCTION {func_name} TO `{grant_to}`")
+                print(f"  Granted EXECUTE to {grant_to}")
+            except Exception as e:
+                print(f"  Grant failed: {e}")
 
 # COMMAND ----------
 
@@ -52,7 +63,7 @@ def register_uc_functions(sql_dir: Path, catalog: str, schema: str):
 notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 definitions_dir = Path(f"/Workspace{notebook_path}").parent / "definitions"
 
-register_uc_functions(definitions_dir, catalog, schema)
+register_uc_functions(definitions_dir, catalog, schema, grant_to=app_sp or None)
 
 # COMMAND ----------
 
