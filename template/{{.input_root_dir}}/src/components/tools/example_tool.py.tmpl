@@ -1,0 +1,20 @@
+"""Example local Python tool for agents."""
+
+from langchain_core.tools import tool
+
+
+@tool
+def example_tool(query: str) -> str:
+    """Look up information based on a query.
+
+    Replace this with your actual tool logic. This is a placeholder
+    that demonstrates the tool pattern for LangGraph agents.
+
+    Args:
+        query: The search query or question to look up.
+
+    Returns:
+        The result of the lookup.
+    """
+    # TODO: Replace with real tool logic
+    return f"Example tool result for: {query}"

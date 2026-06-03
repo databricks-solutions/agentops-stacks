@@ -1,8 +1,24 @@
 # AgentOps Stacks plugin recognition marker.
-# The agentops-stacks plugin (when installed) reads and updates this file.
-# Safe to ignore until you install the plugin; safe to hand-edit if you know what you're doing.
-contract_version: 1
+contract_version: 4
 created_by: cli
 project_name: {{ .input_project_name }}
 cicd_platform: {{ .input_cicd_platform }}
 cloud: {{ .input_cloud }}
+
+# Agent architecture
+framework: langgraph
+eval_scorers: {{ .input_eval_scorers }}
+
+# Shared components enabled
+components:
+  vector_search: {{ .input_use_vector_search }}
+  lakebase: {{ .input_use_lakebase }}
+{{ if (eq .input_use_lakebase "yes") }}  memory_type: {{ .input_memory_type }}
+{{ end }}  genie: {{ .input_use_genie }}
+{{ if (eq .input_use_genie "yes") }}  genie_space_id: {{ .input_genie_space_id }}
+{{ end }}  local_tools: {{ .input_use_local_tools }}
+  uc_functions: {{ .input_use_uc_functions }}
+
+# Registered agents (add new agents here or via /add-agent skill)
+agents:
+  - name: {{ .input_initial_agent_name }}

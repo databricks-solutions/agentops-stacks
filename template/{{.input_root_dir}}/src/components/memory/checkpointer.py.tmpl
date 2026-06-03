@@ -1,0 +1,34 @@
+"""LangGraph checkpointer backed by Databricks Lakebase (Postgres).
+
+Shared component — any agent can import and use this checkpointer.
+"""
+
+import os
+from langgraph.checkpoint.postgres import PostgresSaver
+
+
+# Connection string for the Lakebase Postgres instance.
+# Set via job task parameter or environment variable.
+# Format: postgresql://user:password@host:port/dbname
+LAKEBASE_CONNECTION_STRING = os.environ.get(
+    "LAKEBASE_CONNECTION_STRING",
+    # TODO: Replace with your Lakebase connection string.
+    # See docs/setup.md for how to retrieve this from your workspace.
+    "postgresql://token:${DATABRICKS_TOKEN}@<lakebase-host>:5432/{{ .input_project_name }}",
+)
+
+
+def get_checkpointer() -> PostgresSaver:
+    """Return a PostgresSaver checkpointer connected to Lakebase.
+
+    This gives LangGraph {{ .input_memory_type }} memory:
+{{ if (or (eq .input_memory_type "short_term") (eq .input_memory_type "both")) }}
+    - Short-term: within-session state via thread_id checkpoints
+{{ end }}
+{{ if (or (eq .input_memory_type "long_term") (eq .input_memory_type "both")) }}
+    - Long-term: cross-session memory via persistent checkpoint storage
+{{ end }}
+    """
+    checkpointer = PostgresSaver.from_conn_string(LAKEBASE_CONNECTION_STRING)
+    checkpointer.setup()
+    return checkpointer

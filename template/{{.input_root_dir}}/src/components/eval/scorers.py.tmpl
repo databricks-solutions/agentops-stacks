@@ -1,0 +1,41 @@
+"""MLflow scorer configuration for {{ .input_project_name }}.
+
+Shared across all agents. Scorers selected at scaffold time: {{ .input_eval_scorers }}
+Import this from any agent's eval notebooks.
+"""
+
+{{ $scorers := .input_eval_scorers }}
+{{ $has_relevance := (regexp "relevance").MatchString $scorers }}
+{{ $has_groundedness := (regexp "groundedness").MatchString $scorers }}
+{{ $has_safety := (regexp "safety").MatchString $scorers }}
+{{ $has_chunk_relevance := (regexp "chunk_relevance").MatchString $scorers }}
+{{ $has_guideline := (regexp "guideline_adherence").MatchString $scorers }}
+
+from mlflow.metrics import (
+{{ if $has_relevance }}    relevance,
+{{ end }}
+{{ if $has_groundedness }}    groundedness,
+{{ end }}
+{{ if $has_safety }}    safety,
+{{ end }}
+{{ if $has_chunk_relevance }}    chunk_relevance,
+{{ end }}
+{{ if $has_guideline }}    guideline_adherence,
+{{ end }}
+)
+
+
+def get_scorers() -> list:
+    """Return the configured MLflow scorers for evaluation."""
+    return [
+{{ if $has_relevance }}        relevance(),
+{{ end }}
+{{ if $has_groundedness }}        groundedness(),
+{{ end }}
+{{ if $has_safety }}        safety(),
+{{ end }}
+{{ if $has_chunk_relevance }}        chunk_relevance(),
+{{ end }}
+{{ if $has_guideline }}        guideline_adherence(),
+{{ end }}
+    ]

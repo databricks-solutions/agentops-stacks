@@ -1,0 +1,11 @@
+-- Example Unity Catalog function definition.
+-- Run this against your catalog/schema to create the function,
+-- then add the fully-qualified name to UC_FUNCTION_NAMES in registry.py.
+
+CREATE OR REPLACE FUNCTION ${var.catalog}.${var.schema}.example_function(
+    input_text STRING COMMENT 'The text to process'
+)
+RETURNS STRING
+LANGUAGE SQL
+COMMENT 'Example UC function — replace with your logic'
+RETURN UPPER(input_text);

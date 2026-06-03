@@ -16,8 +16,8 @@ from mlflow.types.responses import (
     to_chat_completions_input,
 )
 
-from src.agents.{{ .input_initial_agent_name }}.graph import graph
-from src.agents.{{ .input_initial_agent_name }}.app.utils import (
+from graph import graph
+from app.utils import (
     get_session_id,
     process_agent_astream_events,
 )
@@ -42,6 +42,9 @@ async def stream_handler(
     request: ResponsesAgentRequest,
 ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
     """Handle streaming requests."""
+    if not isinstance(request, ResponsesAgentRequest):
+        request = ResponsesAgentRequest(**request)
+
     if session_id := get_session_id(request):
         mlflow.update_current_trace(metadata={"mlflow.trace.session": session_id})
 

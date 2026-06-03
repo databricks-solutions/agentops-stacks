@@ -20,10 +20,12 @@ from mlflow.types.responses import (
 
 def get_session_id(request: ResponsesAgentRequest) -> str | None:
     """Extract session/conversation ID from the request."""
-    if request.context and request.context.conversation_id:
-        return request.context.conversation_id
-    if request.custom_inputs and isinstance(request.custom_inputs, dict):
-        return request.custom_inputs.get("session_id")
+    ctx = getattr(request, "context", None)
+    if ctx and getattr(ctx, "conversation_id", None):
+        return ctx.conversation_id
+    custom = getattr(request, "custom_inputs", None)
+    if custom and isinstance(custom, dict):
+        return custom.get("session_id")
     return None
 
 

@@ -1,0 +1,13 @@
+resources:
+  # Lakebase instance for agent memory (checkpointing).
+  # Lakebase instances are currently created via the workspace UI or REST API,
+  # not declaratively in DABs. This file documents the expected instance.
+  #
+  # Instance name: {{ .input_project_name }}_memory
+  # Database: {{ .input_project_name }}
+  # Memory type: {{ .input_memory_type }}
+  #
+  # Setup:
+  #   1. Create a Lakebase instance in the workspace UI
+  #   2. Set the connection string in your job parameters or .env
+  #   3. See docs/setup.md for details
