@@ -7,6 +7,7 @@ Edit tools.py to control tool selection.
 import os
 
 from langgraph.graph import START, END, StateGraph, MessagesState
+from langgraph.prebuilt import ToolNode
 from databricks_langchain import ChatDatabricks
 from tools import get_tools
 {{ if (eq .input_use_vector_search "yes") }}
@@ -54,16 +55,26 @@ def retriever_node(state: MessagesState) -> dict:
     return {"messages": [SystemMessage(content=f"Relevant context:\n{context}")]}
 {{ end }}
 
+def should_continue(state: MessagesState) -> str:
+    """Route to tool_node if the last message has tool calls, otherwise end."""
+    last_message = state["messages"][-1]
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        return "tool_node"
+    return END
+
 
 # --- Graph ---
 
 def build_graph():
+    tools = get_tools()
     builder = StateGraph(MessagesState)
 
 {{ if (eq .input_use_vector_search "yes") }}
     builder.add_node("retriever", retriever_node)
 {{ end }}
     builder.add_node("agent", agent_node)
+    if tools:
+        builder.add_node("tool_node", ToolNode(tools))
 
 {{ if (eq .input_use_vector_search "yes") }}
     builder.add_edge(START, "retriever")
@@ -71,7 +82,12 @@ def build_graph():
 {{ else }}
     builder.add_edge(START, "agent")
 {{ end }}
-    builder.add_edge("agent", END)
+
+    if tools:
+        builder.add_conditional_edges("agent", should_continue, {"tool_node": "tool_node", END: END})
+        builder.add_edge("tool_node", "agent")
+    else:
+        builder.add_edge("agent", END)
 
 {{ if (eq .input_use_lakebase "yes") }}
     return builder.compile(checkpointer=get_checkpointer())

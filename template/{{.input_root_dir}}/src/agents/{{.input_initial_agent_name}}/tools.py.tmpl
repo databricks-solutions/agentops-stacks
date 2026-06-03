@@ -27,6 +27,6 @@ def get_tools() -> list:
     if UC_FUNCTION_NAMES:
         from databricks_langchain.uc_ai import UCFunctionToolkit
         toolkit = UCFunctionToolkit(function_names=UC_FUNCTION_NAMES)
-        tools.extend(toolkit.get_tools())
+        tools.extend(toolkit.tools)
 {{ end }}
     return tools
