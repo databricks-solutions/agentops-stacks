@@ -25,8 +25,8 @@
 {{ end }}
 
 # --- Per-agent eval ---
-# Eval dataset creation notebook — skip if user already has one
-{{ if (eq .input_has_eval_dataset `yes`) }}
+# Skip dataset creation notebook if user already has a dataset
+{{ if (eq .input_eval_dataset_source `existing`) }}
     {{ skip (printf `%s/%s` $agent_dir `eval/create_dataset.py`) }}
 {{ end }}
 
