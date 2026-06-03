@@ -1,0 +1,227 @@
+"""Evaluation gate utilities for {{ .input_initial_agent_name }}.
+
+Provides validation, scorer collection, and champion/challenger comparison
+logic used by evaluate_agent.py. Kept separate so it can be unit-tested
+without running a notebook.
+"""
+
+import yaml
+from pathlib import Path
+
+from mlflow.genai.scorers import (
+    Fluency,
+    RelevanceToQuery,
+    Safety,
+    ToolCallCorrectness,
+    Completeness,
+    get_scorer,
+)
+
+# Fallback map for built-in scorers (used if not yet registered)
+BUILTIN_SCORERS = {
+    "fluency": Fluency,
+    "relevance": RelevanceToQuery,
+    "safety": Safety,
+    "tool_call_correctness": ToolCallCorrectness,
+    "groundedness": Completeness,
+}
+
+# Maps gate names to MLflow metric keys (which differ for some scorers)
+METRIC_NAME_MAP = {
+    "relevance": "relevance_to_query",
+    "groundedness": "completeness",
+}
+
+
+def load_gates(gates_path: Path) -> dict:
+    """Load and return the gates config from a YAML file."""
+    with open(gates_path) as f:
+        return yaml.safe_load(f)
+
+
+def validate_gates(config: dict) -> tuple[list[str], list[str]]:
+    """Check gates config for conflicts and misconfigurations.
+
+    Returns (errors, warnings).
+    """
+    errors = []
+    warnings = []
+    seen = {}
+
+    for tier in ("block", "warn", "info"):
+        entries = config.get(tier, []) or []
+        for entry in entries:
+            if isinstance(entry, str):
+                scorer_name = entry
+                opts = {}
+            elif isinstance(entry, dict):
+                scorer_name = list(entry.keys())[0]
+                opts = entry[scorer_name] or {}
+            else:
+                errors.append(f"Invalid entry in '{tier}': {entry}")
+                continue
+
+            ds_filter = opts.get("dataset_filter")
+            key = (scorer_name, ds_filter)
+
+            if key in seen:
+                prev_tier = seen[key]
+                errors.append(
+                    f"Conflict: '{scorer_name}' appears in both '{prev_tier}' and "
+                    f"'{tier}' with the same dataset_filter ({ds_filter or 'all'}). "
+                    f"A scorer can only be in one tier per filter slice."
+                )
+            else:
+                seen[key] = tier
+
+            if tier == "block" and "tolerance" in opts:
+                warnings.append(
+                    f"'{scorer_name}' in 'block' has tolerance={opts['tolerance']}. "
+                    f"Block scorers use floor for absolute minimums — "
+                    f"tolerance is ignored for block tier."
+                )
+
+            if "floor" in opts and not isinstance(opts["floor"], (int, float)):
+                errors.append(
+                    f"'{scorer_name}' floor must be a number, got: {opts['floor']}"
+                )
+
+            if "tolerance" in opts:
+                tol = opts["tolerance"]
+                if not isinstance(tol, (int, float)) or tol < 0 or tol > 1:
+                    errors.append(
+                        f"'{scorer_name}' tolerance must be between 0 and 1, got: {tol}"
+                    )
+
+    return errors, warnings
+
+
+def collect_scorers(config: dict) -> list:
+    """Extract unique scorer instances from all gate tiers.
+
+    Tries registered scorers via get_scorer() first (supports custom scorers
+    registered in components/eval/scorers.py). Falls back to built-in classes.
+    """
+    scorer_names = set()
+    for tier in ("block", "warn", "info"):
+        for entry in config.get(tier, []) or []:
+            name = entry if isinstance(entry, str) else list(entry.keys())[0]
+            scorer_names.add(name)
+
+    scorers = []
+    for name in scorer_names:
+        try:
+            scorers.append(get_scorer(name=name))
+            continue
+        except Exception:
+            pass
+
+        if name in BUILTIN_SCORERS:
+            scorers.append(BUILTIN_SCORERS[name]())
+        else:
+            print(f"WARNING: Unknown scorer '{name}', skipping.")
+
+    return scorers
+
+
+def find_champion(experiment_id: str) -> dict | None:
+    """Find the latest passing eval run (the champion).
+
+    Returns a pandas Series or None if no champion exists.
+    """
+    import mlflow
+
+    champion_runs = mlflow.search_runs(
+        experiment_ids=[experiment_id],
+        filter_string="tags.eval_result = 'pass'",
+        order_by=["start_time DESC"],
+        max_results=1,
+    )
+    if len(champion_runs) == 0:
+        return None
+    return champion_runs.iloc[0]
+
+
+def apply_gates(
+    config: dict,
+    challenger_metrics: dict,
+    champion=None,
+) -> tuple[bool, list[str]]:
+    """Compare challenger metrics against champion using gate config.
+
+    Returns (passed, report) where report is a list of result strings.
+    """
+    passed = True
+    report = []
+
+    for tier in ("block", "warn", "info"):
+        for entry in config.get(tier, []) or []:
+            if isinstance(entry, str):
+                scorer_name, opts = entry, {}
+            else:
+                scorer_name = list(entry.keys())[0]
+                opts = entry[scorer_name] or {}
+
+            mlflow_name = METRIC_NAME_MAP.get(scorer_name, scorer_name)
+            metric_key = f"{mlflow_name}/mean"
+            challenger_val = challenger_metrics.get(metric_key)
+
+            if challenger_val is None:
+                report.append(f"  SKIP  {scorer_name} — no metric found")
+                continue
+
+            # Check floor (absolute minimum)
+            floor = opts.get("floor")
+            if floor is not None and challenger_val < floor:
+                status = "FAIL" if tier == "block" else "WARN"
+                report.append(
+                    f"  {status}  {scorer_name}: {challenger_val:.3f} < floor {floor}"
+                )
+                if tier == "block":
+                    passed = False
+                continue
+
+            # Compare against champion
+            if champion is not None:
+                champion_val = champion.get(f"metrics.{metric_key}")
+                if champion_val is not None:
+                    tolerance = opts.get("tolerance", 0.0) if tier == "warn" else 0.0
+                    threshold = champion_val * (1 - tolerance)
+
+                    if challenger_val < threshold:
+                        status = "FAIL" if tier in ("block", "warn") else "INFO"
+                        report.append(
+                            f"  {status}  {scorer_name}: {challenger_val:.3f} < "
+                            f"{threshold:.3f} (champion={champion_val:.3f}, "
+                            f"tolerance={tolerance:.0%})"
+                        )
+                        if tier in ("block", "warn"):
+                            passed = False
+                    else:
+                        report.append(
+                            f"  PASS  {scorer_name}: {challenger_val:.3f} >= "
+                            f"{threshold:.3f} (champion={champion_val:.3f})"
+                        )
+                else:
+                    report.append(f"  PASS  {scorer_name}: {challenger_val:.3f} (no champion baseline)")
+            else:
+                report.append(f"  PASS  {scorer_name}: {challenger_val:.3f} (first run, no champion)")
+
+    return passed, report
+
+
+def tag_eval_run(run_id: str, passed: bool):
+    """Tag an eval run with pass/fail result and git SHA if available."""
+    import mlflow
+    import subprocess
+
+    client = mlflow.MlflowClient()
+    client.set_tag(run_id, "eval_result", "pass" if passed else "fail")
+
+    try:
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
+        client.set_tag(run_id, "git_sha", git_sha)
+    except Exception:
+        pass
