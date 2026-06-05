@@ -4,10 +4,14 @@ Composes shared components into a compiled graph.
 Edit tools.py to control tool selection.
 """
 
+import os
+
 from langgraph.graph import START, END, StateGraph, MessagesState
 from langgraph.prebuilt import ToolNode
 from databricks_langchain import ChatDatabricks
 from tools import get_tools
+
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
 
 
 # --- Nodes ---
@@ -15,7 +19,7 @@ from tools import get_tools
 def agent_node(state: MessagesState) -> dict:
     """Call the LLM with tools bound."""
     tools = get_tools()
-    llm = ChatDatabricks(endpoint="databricks-claude-sonnet-4")
+    llm = ChatDatabricks(endpoint=LLM_ENDPOINT)
     if tools:
         llm = llm.bind_tools(tools)
     response = llm.invoke(state["messages"])

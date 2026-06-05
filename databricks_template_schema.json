@@ -76,40 +76,15 @@
         }
       }
     },
-    "input_use_genie": {
-      "order": 10,
-      "type": "string",
-      "description": "\nInclude a Genie Space tool for structured data querying.\ninput_use_genie",
-      "default": "no",
-      "enum": ["yes", "no"]
-    },
-    "input_genie_space_id": {
-      "order": 11,
-      "type": "string",
-      "description": "\nExisting Genie Space ID to wire as a tool. Leave blank to configure later.\ninput_genie_space_id",
-      "default": "",
-      "skip_prompt_if": {
-        "properties": {
-          "input_use_genie": { "const": "no" }
-        }
-      }
-    },
-    "input_use_local_tools": {
-      "order": 12,
-      "type": "string",
-      "description": "\nInclude shared tools component with example local Python tool functions.\ninput_use_local_tools",
-      "default": "yes",
-      "enum": ["yes", "no"]
-    },
     "input_use_uc_functions": {
-      "order": 13,
+      "order": 10,
       "type": "string",
       "description": "\nInclude Unity Catalog function tool references as a shared component.\ninput_use_uc_functions",
       "default": "no",
       "enum": ["yes", "no"]
     },
     "input_uc_functions_exist": {
-      "order": 14,
+      "order": 11,
       "type": "string",
       "description": "\nAre the UC functions already defined in your catalog? If no, the scaffold includes definition stubs.\ninput_uc_functions_exist",
       "default": "no",
@@ -121,18 +96,18 @@
       }
     },
     "input_has_eval_dataset": {
-      "order": 15,
+      "order": 12,
       "type": "string",
       "description": "\nDo you already have an evaluation dataset? If no, the scaffold includes a dataset creation notebook.\ninput_has_eval_dataset",
       "default": "no",
       "enum": ["yes", "no"]
     },
     "input_eval_scorers": {
-      "order": 16,
+      "order": 13,
       "type": "string",
       "description": "\nComma-separated list of MLflow scorer types for production monitoring. Options: relevance, groundedness, safety, chunk_relevance, guideline_adherence.\ninput_eval_scorers",
       "default": "relevance,groundedness,safety"
     }
   },
-  "success_message": "\n*** AgentOps Stacks project created in '{{.input_root_dir}}' ***\n\nNext steps:\n  1. cd {{.input_root_dir}}\n  2. uv sync\n  3. Set up .env with Databricks auth profile\n  4. uv run start-app  — run the agent locally\n  5. uv run agent-evaluate  — run evaluation\n  6. databricks bundle deploy -t dev  — deploy to Databricks\n\nYour agent: src/agents/{{.input_initial_agent_name}}/agent.py"
+  "success_message": "\n*** AgentOps Stacks project created in '{{.input_root_dir}}' ***\n\nNext steps:\n  1. cd {{.input_root_dir}}/src/agents/{{.input_initial_agent_name}}\n  2. uv sync\n  3. cp .env.example .env  — configure Databricks auth\n  4. uv run python app/start_server.py  — run the agent locally\n  5. databricks bundle deploy -t dev  — deploy to Databricks\n\nYour agent: src/agents/{{.input_initial_agent_name}}/agent.py"
 }
