@@ -1,0 +1,5 @@
+resources:
+  database_instances:
+    memory:
+      name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
+      capacity: CU_1
