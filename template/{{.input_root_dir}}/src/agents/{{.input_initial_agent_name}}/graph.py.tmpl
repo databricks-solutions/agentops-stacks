@@ -38,23 +38,33 @@ def should_continue(state: MessagesState) -> str:
 
 def get_checkpointer():
     """Create a PostgresSaver checkpointer using Lakebase credentials."""
-    from databricks.sdk import WorkspaceClient
-    from langgraph.checkpoint.postgres import PostgresSaver
-    from psycopg import Connection
+    import logging
+    logger = logging.getLogger(__name__)
 
     lakebase_instance = os.environ.get("LAKEBASE_INSTANCE")
     if not lakebase_instance:
         return None
 
-    w = WorkspaceClient()
-    cred = w.database.generate_database_credential(instance_names=[lakebase_instance])
-    lakebase_host = os.environ["LAKEBASE_HOST"]
-    db_name = os.environ.get("LAKEBASE_DB", "default")
-    conn_str = f"postgresql://token:{cred.token}@{lakebase_host}:5432/{db_name}?sslmode=require"
-    conn = Connection.connect(conn_str, autocommit=True, prepare_threshold=0)
-    checkpointer = PostgresSaver(conn)
-    checkpointer.setup()
-    return checkpointer
+    try:
+        from databricks.sdk import WorkspaceClient
+        from langgraph.checkpoint.postgres import PostgresSaver
+        from psycopg import Connection
+
+        w = WorkspaceClient()
+        cred = w.database.generate_database_credential(instance_names=[lakebase_instance])
+        # Use the current identity (SP client_id or user) as the Postgres username
+        user = w.current_user.me().user_name
+        lakebase_host = os.environ["LAKEBASE_HOST"]
+        db_name = os.environ.get("LAKEBASE_DB", "default")
+        conn_str = f"postgresql://{user}:{cred.token}@{lakebase_host}:5432/{db_name}?sslmode=require"
+        conn = Connection.connect(conn_str, autocommit=True, prepare_threshold=0)
+        checkpointer = PostgresSaver(conn)
+        checkpointer.setup()
+        logger.info(f"Lakebase checkpointer connected to {lakebase_instance}")
+        return checkpointer
+    except Exception as e:
+        logger.warning(f"Failed to connect to Lakebase ({lakebase_instance}): {e}. Running without memory.")
+        return None
 {{ end }}
 
 # --- Graph ---
