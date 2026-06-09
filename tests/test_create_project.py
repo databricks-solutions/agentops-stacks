@@ -439,6 +439,52 @@ def test_component_combinations():
             assert proj.exists()
             assert_no_go_templates(proj)
 
+    # --- VS-specific file presence/absence ---
+    if _has_vs:
+        @test("VS enabled — vector_search.yml and data_pipeline.yml exist")
+        def _():
+            p = gen(input_use_vector_search="yes")
+            assert file_exists(p, "resources/vector_search.yml")
+            assert file_exists(p, "resources/data_pipeline.yml")
+            assert file_exists(p, "src/components/retriever/data_pipeline.py")
+
+        @test("VS enabled — databricks.yml includes VS and pipeline resources")
+        def _():
+            content = read_file(gen(input_use_vector_search="yes"), "databricks.yml")
+            assert "vector_search.yml" in content
+            assert "data_pipeline.yml" in content
+
+        @test("VS + chunked table — vector_search.yml exists, pipeline excluded")
+        def _():
+            p = gen(input_use_vector_search="yes", input_has_chunked_table="yes")
+            assert file_exists(p, "resources/vector_search.yml")
+            assert not file_exists(p, "resources/data_pipeline.yml")
+            assert not file_exists(p, "src/components/retriever/data_pipeline.py")
+
+        @test("VS + chunked table — databricks.yml includes VS but NOT pipeline")
+        def _():
+            content = read_file(gen(input_use_vector_search="yes", input_has_chunked_table="yes"), "databricks.yml")
+            assert "vector_search.yml" in content
+            assert "data_pipeline.yml" not in content
+
+        @test("VS enabled — retriever node and DatabricksVectorSearch in graph.py")
+        def _():
+            content = read_file(gen(input_use_vector_search="yes"), "src/agents/default/graph.py")
+            assert "retriever_node" in content
+            assert "DatabricksVectorSearch" in content
+            assert "get_relevant_chunks" in content
+
+        @test("VS disabled — no retriever or VS in graph.py")
+        def _():
+            content = read_file(gen(input_use_vector_search="no"), "src/agents/default/graph.py")
+            assert "retriever_node" not in content
+            assert "DatabricksVectorSearch" not in content
+
+        @test("VS enabled — databricks-vectorsearch in pyproject.toml")
+        def _():
+            content = read_file(gen(input_use_vector_search="yes"), "src/agents/default/pyproject.toml")
+            assert "databricks-vectorsearch" in content
+
     @test("no components — no component files in output")
     def _():
         files = paths(gen())
