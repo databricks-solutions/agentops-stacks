@@ -5,12 +5,14 @@ Edit tools.py to control tool selection.
 """
 
 import os
+import logging
 
 from langgraph.graph import START, END, StateGraph, MessagesState
 from langgraph.prebuilt import ToolNode
 from databricks_langchain import ChatDatabricks
 from tools import get_tools
 
+logger = logging.getLogger(__name__)
 LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
 
 
@@ -36,10 +38,16 @@ def should_continue(state: MessagesState) -> str:
 {{ if (eq .input_use_lakebase "yes") }}
 # --- Lakebase checkpointer ---
 
-def get_checkpointer():
-    """Create a PostgresSaver checkpointer using Lakebase credentials."""
-    import logging
-    logger = logging.getLogger(__name__)
+_tables_created = False
+
+
+async def get_async_checkpointer():
+    """Create an AsyncPostgresSaver with fresh Lakebase credentials.
+
+    Called per-request so credentials are always valid. Uses async psycopg
+    connection compatible with graph.astream().
+    """
+    global _tables_created
 
     lakebase_instance = os.environ.get("LAKEBASE_INSTANCE")
     if not lakebase_instance:
@@ -47,20 +55,21 @@ def get_checkpointer():
 
     try:
         from databricks.sdk import WorkspaceClient
-        from langgraph.checkpoint.postgres import PostgresSaver
-        from psycopg import Connection
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg import AsyncConnection
 
         w = WorkspaceClient()
-        cred = w.database.generate_database_credential(instance_names=[lakebase_instance])
-        # Use the current identity (SP client_id or user) as the Postgres username
         user = w.current_user.me().user_name
+        cred = w.database.generate_database_credential(instance_names=[lakebase_instance])
         lakebase_host = os.environ["LAKEBASE_HOST"]
         db_name = os.environ.get("LAKEBASE_DB", "default")
         conn_str = f"postgresql://{user}:{cred.token}@{lakebase_host}:5432/{db_name}?sslmode=require"
-        conn = Connection.connect(conn_str, autocommit=True, prepare_threshold=0)
-        checkpointer = PostgresSaver(conn)
-        checkpointer.setup()
-        logger.info(f"Lakebase checkpointer connected to {lakebase_instance}")
+        conn = await AsyncConnection.connect(conn_str, autocommit=True, prepare_threshold=0)
+        checkpointer = AsyncPostgresSaver(conn)
+        if not _tables_created:
+            await checkpointer.setup()
+            _tables_created = True
+            logger.info(f"Lakebase checkpointer connected to {lakebase_instance}")
         return checkpointer
     except Exception as e:
         logger.warning(f"Failed to connect to Lakebase ({lakebase_instance}): {e}. Running without memory.")
@@ -85,12 +94,11 @@ def build_graph():
     else:
         builder.add_edge("agent", END)
 
-{{ if (eq .input_use_lakebase "yes") }}
-    checkpointer = get_checkpointer()
-    return builder.compile(checkpointer=checkpointer)
-{{ else }}
-    return builder.compile()
-{{ end }}
+    return builder
 
 
-graph = build_graph()
+# Export builder for per-request compilation with checkpointer
+graph_builder = build_graph()
+
+# Compiled graph without checkpointer (used at startup, fallback)
+graph = graph_builder.compile()
