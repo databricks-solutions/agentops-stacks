@@ -26,12 +26,6 @@ BUILTIN_SCORERS = {
     "groundedness": Completeness,
 }
 
-# Maps gate names to MLflow metric keys (which differ for some scorers)
-METRIC_NAME_MAP = {
-    "relevance": "relevance_to_query",
-    "groundedness": "completeness",
-}
-
 
 def load_gates(gates_path: Path) -> dict:
     """Load and return the gates config from a YAML file."""
@@ -100,7 +94,7 @@ def collect_scorers(config: dict) -> list:
     """Extract unique scorer instances from all gate tiers.
 
     Tries registered scorers via get_scorer() first (supports custom scorers
-    registered in components/eval/scorers.py). Falls back to built-in classes.
+    registered in this agent's eval/scorers.py). Falls back to built-in classes.
     """
     scorer_names = set()
     for tier in ("block", "warn", "info"):
@@ -162,8 +156,7 @@ def apply_gates(
                 scorer_name = list(entry.keys())[0]
                 opts = entry[scorer_name] or {}
 
-            mlflow_name = METRIC_NAME_MAP.get(scorer_name, scorer_name)
-            metric_key = f"{mlflow_name}/mean"
+            metric_key = f"{scorer_name}/mean"
             challenger_val = challenger_metrics.get(metric_key)
 
             if challenger_val is None:

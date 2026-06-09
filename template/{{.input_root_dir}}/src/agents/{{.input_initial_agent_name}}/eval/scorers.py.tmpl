@@ -1,0 +1,219 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # Scorers — {{ .input_initial_agent_name }}
+# MAGIC
+# MAGIC Registers built-in and custom scorers for this agent's experiment.
+# MAGIC Scorers are derived from the components this agent uses.
+# MAGIC
+# MAGIC Run this notebook once after setup, or after adding custom scorers.
+# MAGIC
+# MAGIC **After running this notebook, scorers can be:**
+# MAGIC - Referenced by name in `eval/gates.yml`
+# MAGIC - Used in evaluation via `evaluate_agent.py`
+# MAGIC - Started for production monitoring via `.start()`
+
+# COMMAND ----------
+
+# MAGIC %pip install mlflow>=3.10.0 databricks-agents>=1.9.3
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+import mlflow
+from mlflow.genai.scorers import (
+    Fluency,
+    RelevanceToQuery,
+    Safety,
+    ToolCallCorrectness,
+    Completeness,
+    scorer,
+    get_scorer,
+    ScorerSamplingConfig,
+)
+from mlflow.entities import Feedback
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Set experiment
+
+# COMMAND ----------
+
+import os
+
+PROJECT_NAME = "{{ .input_project_name }}"
+AGENT_NAME = "{{ .input_initial_agent_name }}"
+EXPERIMENT_NAME = f"/Shared/{PROJECT_NAME}_{AGENT_NAME}_eval"
+
+mlflow.set_experiment(EXPERIMENT_NAME)
+print(f"Experiment: {EXPERIMENT_NAME}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Register built-in scorers
+# MAGIC
+# MAGIC Only the scorers relevant to this agent's components are registered.
+
+# COMMAND ----------
+
+builtin_scorers = {
+    "safety": Safety(),
+    "fluency": Fluency(),
+{{ if (eq .input_use_vector_search "yes") }}    "relevance": RelevanceToQuery(),
+    "groundedness": Completeness(),
+{{ end }}{{ if (eq .input_use_uc_functions "yes") }}    "tool_call_correctness": ToolCallCorrectness(),
+{{ end }}}
+
+for name, s in builtin_scorers.items():
+    registered = s.register(name=name)
+    print(f"  Registered: {registered.name}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Custom scorers
+# MAGIC
+# MAGIC Define agent-specific scorers below.
+# MAGIC
+# MAGIC **How it works:**
+# MAGIC 1. Define a scorer function with `@scorer`
+# MAGIC 2. Call `.register(name=...)` to make it available by name
+# MAGIC 3. Add the scorer name to `eval/gates.yml` under the appropriate tier
+# MAGIC
+# MAGIC **Available parameters** (all keyword-only, all optional):
+# MAGIC - `inputs` — the raw request dict sent to the agent
+# MAGIC - `outputs` — the raw response from the agent
+# MAGIC - `expectations` — ground truth / labels from the eval dataset
+# MAGIC - `trace` — the full MLflow trace with all spans
+# MAGIC
+# MAGIC **Return types:**
+# MAGIC - `bool`, `int`, `float`, `str` ("yes"/"no") — simple scores
+# MAGIC - `Feedback(value=..., rationale=...)` — score with explanation
+# MAGIC - `list[Feedback]` — multiple metrics from one scorer
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Example: heuristic scorer (no LLM call)
+
+# COMMAND ----------
+
+# Uncomment, customize, and re-run this notebook to register.
+
+# @scorer
+# def cites_sources(*, outputs, **kwargs) -> Feedback:
+#     """Check whether the response cites source documents."""
+#     text = str(outputs) if outputs else ""
+#     markers = ["source:", "reference:", "according to", "[doc"]
+#     found = any(m in text.lower() for m in markers)
+#     return Feedback(
+#         value="yes" if found else "no",
+#         rationale=f"{'Found' if found else 'No'} source citations in response.",
+#     )
+#
+# cites_sources.register(name="cites_sources")
+# print("  Registered: cites_sources")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Example: LLM-as-judge scorer
+
+# COMMAND ----------
+
+# @scorer
+# def domain_accuracy(*, inputs, outputs, **kwargs) -> Feedback:
+#     """Use an LLM to judge whether the response is factually accurate."""
+#     from databricks.sdk import WorkspaceClient
+#
+#     w = WorkspaceClient()
+#     judge_response = w.serving_endpoints.query(
+#         name="databricks-claude-sonnet-4-5",
+#         messages=[
+#             {
+#                 "role": "system",
+#                 "content": (
+#                     "You are an evaluation judge. Given a user question and an "
+#                     "agent response, rate factual accuracy from 1 (wrong) to 5 "
+#                     "(fully accurate). Reply with ONLY a JSON object: "
+#                     '{"score": <int>, "rationale": "<explanation>"}'
+#                 ),
+#             },
+#             {
+#                 "role": "user",
+#                 "content": f"Question: {inputs}\n\nResponse: {outputs}",
+#             },
+#         ],
+#     )
+#     import json
+#     result = json.loads(judge_response.choices[0].message.content)
+#     return Feedback(
+#         value=float(result["score"]),
+#         rationale=result["rationale"],
+#     )
+#
+# domain_accuracy.register(name="domain_accuracy")
+# print("  Registered: domain_accuracy")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Example: trace-based scorer (inspects tool calls)
+
+# COMMAND ----------
+
+# @scorer
+# def tool_latency_check(*, trace, **kwargs) -> Feedback:
+#     """Flag if any tool call span exceeds a latency threshold."""
+#     if trace is None:
+#         return Feedback(value="yes", rationale="No trace available.")
+#     threshold_ms = 5000
+#     slow_spans = []
+#     for span in trace.search_spans(span_type="TOOL"):
+#         duration_ms = (span.end_time_ns - span.start_time_ns) / 1e6
+#         if duration_ms > threshold_ms:
+#             slow_spans.append(f"{span.name}: {duration_ms:.0f}ms")
+#     if slow_spans:
+#         return Feedback(
+#             value="no",
+#             rationale=f"Slow tool calls: {', '.join(slow_spans)}",
+#         )
+#     return Feedback(value="yes", rationale="All tool calls within latency budget.")
+#
+# tool_latency_check.register(name="tool_latency_check")
+# print("  Registered: tool_latency_check")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Production monitoring
+# MAGIC
+# MAGIC Call `.start()` on registered scorers to score incoming production
+# MAGIC traces automatically. Each scored trace incurs compute cost —
+# MAGIC adjust `sample_rate` accordingly.
+
+# COMMAND ----------
+
+# Uncomment to enable production monitoring for this agent's scorers.
+
+# get_scorer(name="safety").start(
+#     sampling_config=ScorerSamplingConfig(sample_rate=1.0)
+# )
+
+# get_scorer(name="fluency").start(
+#     sampling_config=ScorerSamplingConfig(sample_rate=0.5)
+# )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Verify
+
+# COMMAND ----------
+
+print(f"Scorers registered to {EXPERIMENT_NAME}:")
+for name in builtin_scorers:
+    s = get_scorer(name=name)
+    print(f"  {s.name}")

@@ -351,8 +351,8 @@ def test_eval_output():
     @test("eval files always generated — utils.py")
     def _(): assert file_exists(gen(), "src/agents/default/eval/utils.py")
 
-    @test("shared eval scorers component exists")
-    def _(): assert file_exists(gen(), "src/components/eval/scorers.py")
+    @test("agent-scoped eval scorers exist")
+    def _(): assert file_exists(gen(), "src/agents/default/eval/scorers.py")
 
     # --- Dataset source: synthetic ---
     @test("synthetic — create_dataset.py uses generate_evals_df")
