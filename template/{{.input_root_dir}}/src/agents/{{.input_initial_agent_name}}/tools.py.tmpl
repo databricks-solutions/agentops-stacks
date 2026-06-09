@@ -3,22 +3,30 @@
 Each agent picks which tools to use. Edit this file to
 customize which tools this agent has access to.
 """
-
 {{ if (eq .input_use_uc_functions "yes") }}
-# TODO: Add your UC function names here after running the registration notebook.
-# Format: ["catalog.schema.function_name", ...]
-UC_FUNCTION_NAMES = [
-    # "${var.catalog}.${var.schema}.example_function",
-]
+import os
+from pathlib import Path
+
+from databricks_langchain.uc_ai import UCFunctionToolkit
+
+CATALOG = os.environ.get("CATALOG", "")
+SCHEMA = os.environ.get("SCHEMA", "")
+
+# Discover UC function names from definitions/ directory.
+# Each .py or .sql file stem becomes a function name.
+_DEFINITIONS_DIR = Path(__file__).resolve().parent.parent.parent / "components" / "uc_functions" / "definitions"
+UC_FUNCTION_NAMES = sorted(
+    f.stem for f in _DEFINITIONS_DIR.iterdir()
+    if f.suffix in (".py", ".sql") and not f.name.startswith("_")
+) if _DEFINITIONS_DIR.exists() else []
 {{ end }}
 
 def get_tools() -> list:
     """Return the tools available to this agent."""
     tools = []
 {{ if (eq .input_use_uc_functions "yes") }}
-    if UC_FUNCTION_NAMES:
-        from databricks_langchain.uc_ai import UCFunctionToolkit
-        toolkit = UCFunctionToolkit(function_names=UC_FUNCTION_NAMES)
+    if UC_FUNCTION_NAMES and CATALOG and SCHEMA:
+        qualified = [f"{CATALOG}.{SCHEMA}.{name}" for name in UC_FUNCTION_NAMES]
+        toolkit = UCFunctionToolkit(function_names=qualified)
         tools.extend(toolkit.tools)
-{{ end }}
-    return tools
+{{ end }}    return tools

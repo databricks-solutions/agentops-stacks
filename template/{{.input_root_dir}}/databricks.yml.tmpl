@@ -14,6 +14,8 @@ include:
   - ./resources/experiment.yml
   - ./resources/schemas.yml
   - ./resources/volumes.yml
+{{ if (eq .input_use_uc_functions "yes") }}  - ./resources/uc_function_registration.yml
+{{ end }}
 
 resources:
   apps:

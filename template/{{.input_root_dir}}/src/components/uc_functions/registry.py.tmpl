@@ -2,8 +2,16 @@
 
 # MAGIC %md
 # MAGIC # UC Function Registration
-# MAGIC Registers SQL functions from the `definitions/` folder into Unity Catalog,
+# MAGIC Registers SQL and Python functions from the `definitions/` folder into Unity Catalog,
 # MAGIC then grants EXECUTE to the app service principal.
+# MAGIC
+# MAGIC **To add a new function:** create a `.py` or `.sql` file in `definitions/`
+# MAGIC and re-run this notebook. The file name becomes the function name.
+
+# COMMAND ----------
+
+# MAGIC %pip install unitycatalog-ai[databricks]
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -23,47 +31,90 @@ spark.sql(f"USE SCHEMA {schema}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Helper
+# MAGIC ## Initialize function client
 
 # COMMAND ----------
 
-from pathlib import Path
+from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
-
-def register_uc_functions(sql_dir: Path, catalog: str, schema: str, grant_to: str = None):
-    """Read .sql files, register as UC functions, and optionally grant EXECUTE."""
-    sql_files = sorted(sql_dir.glob("*.sql"))
-    print(f"Found {len(sql_files)} SQL definition(s) in {sql_dir}\n")
-
-    for sql_file in sql_files:
-        sql = sql_file.read_text().replace("${var.catalog}", catalog).replace("${var.schema}", schema)
-        func_name = f"{catalog}.{schema}.{sql_file.stem}"
-        print(f"Registering: {func_name}...", end=" ")
-        try:
-            spark.sql(sql)
-            print("OK")
-        except Exception as e:
-            print(f"ERROR: {e}")
-            continue
-
-        if grant_to:
-            try:
-                spark.sql(f"GRANT EXECUTE ON FUNCTION {func_name} TO `{grant_to}`")
-                print(f"  Granted EXECUTE to {grant_to}")
-            except Exception as e:
-                print(f"  Grant failed: {e}")
+client = DatabricksFunctionClient()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Register functions
+# MAGIC ## Register definitions
+# MAGIC
+# MAGIC - `.py` files: must define a function matching the file name, with type hints
+# MAGIC   and a Google-style docstring. Registered via `client.create_python_function()`.
+# MAGIC - `.sql` files: must contain a `CREATE FUNCTION` statement.
+# MAGIC   Registered via `spark.sql()`.
 
 # COMMAND ----------
+
+import importlib.util
+from pathlib import Path
 
 notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 definitions_dir = Path(f"/Workspace{notebook_path}").parent / "definitions"
 
-register_uc_functions(definitions_dir, catalog, schema, grant_to=app_sp or None)
+registered = []
+
+# --- Python definitions ---
+for py_file in sorted(definitions_dir.glob("*.py")):
+    if py_file.name.startswith("_"):
+        continue
+    spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    func = getattr(mod, py_file.stem, None)
+    if func is None or not callable(func):
+        print(f"  SKIP: {py_file.name} — no callable named '{py_file.stem}' found")
+        continue
+
+    client.create_python_function(
+        func=func,
+        catalog=catalog,
+        schema=schema,
+        replace=True,
+    )
+    registered.append(f"{catalog}.{schema}.{py_file.stem}")
+    print(f"  OK (python): {catalog}.{schema}.{py_file.stem}")
+
+# --- SQL definitions ---
+for sql_file in sorted(definitions_dir.glob("*.sql")):
+    sql = sql_file.read_text().replace("${var.catalog}", catalog).replace("${var.schema}", schema)
+    func_name = f"{catalog}.{schema}.{sql_file.stem}"
+    print(f"Registering: {func_name}...", end=" ")
+    try:
+        spark.sql(sql)
+        print("OK")
+    except Exception as e:
+        print(f"ERROR: {e}")
+        continue
+    registered.append(func_name)
+
+if not registered:
+    print("No definitions found in definitions/. Add .py or .sql files and re-run.")
+
+print(f"\nRegistered {len(registered)} function(s).")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Grant EXECUTE
+
+# COMMAND ----------
+
+if app_sp:
+    for func_name in registered:
+        try:
+            spark.sql(f"GRANT EXECUTE ON FUNCTION {func_name} TO `{app_sp}`")
+            print(f"  Granted EXECUTE on {func_name} to {app_sp}")
+        except Exception as e:
+            print(f"  Grant failed for {func_name}: {e}")
+else:
+    print("No app_sp provided — skipping EXECUTE grants.")
 
 # COMMAND ----------
 
