@@ -24,11 +24,5 @@
     {{ skip (printf `%s/%s` $root_dir `src/components/uc_functions/definitions`) }}
 {{ end }}
 
-# --- Per-agent eval ---
-# Eval dataset creation notebook — skip if user already has one
-{{ if (eq .input_has_eval_dataset `yes`) }}
-    {{ skip (printf `%s/%s` $agent_dir `eval/create_dataset.py`) }}
-{{ end }}
-
 # Remove template processing file itself
 {{ skip `update_layout` }}
