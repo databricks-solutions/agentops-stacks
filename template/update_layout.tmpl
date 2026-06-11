@@ -16,12 +16,12 @@
 
 # --- UC Functions component ---
 {{ if (eq .input_use_uc_functions `no`) }}
-    {{ skip (printf `%s/%s` $root_dir `src/components/uc_functions`) }}
+    {{ skip (printf `%s/%s` $root_dir `src/components/tools`) }}
 {{ end }}
 
 # UC function definition stubs — skip if they already exist in catalog
 {{ if (and (eq .input_use_uc_functions `yes`) (eq .input_uc_functions_exist `yes`)) }}
-    {{ skip (printf `%s/%s` $root_dir `src/components/uc_functions/definitions`) }}
+    {{ skip (printf `%s/%s` $root_dir `src/components/tools/definitions`) }}
 {{ end }}
 
 # Remove template processing file itself

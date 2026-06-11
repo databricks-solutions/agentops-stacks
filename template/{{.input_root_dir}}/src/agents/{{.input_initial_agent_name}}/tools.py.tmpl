@@ -14,7 +14,7 @@ SCHEMA = os.environ.get("SCHEMA", "")
 
 # Discover UC function names from definitions/ directory.
 # Each .py or .sql file stem becomes a function name.
-_DEFINITIONS_DIR = Path(__file__).resolve().parent.parent.parent / "components" / "uc_functions" / "definitions"
+_DEFINITIONS_DIR = Path(__file__).resolve().parent.parent.parent / "components" / "tools" / "definitions"
 UC_FUNCTION_NAMES = sorted(
     f.stem for f in _DEFINITIONS_DIR.iterdir()
     if f.suffix in (".py", ".sql") and not f.name.startswith("_")
