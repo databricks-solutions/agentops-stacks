@@ -1,6 +1,6 @@
 {
   "welcome_message": "Welcome to AgentOps Stacks — a Declarative Automation Bundle template for production-ready AI agents on Databricks.\n\nThis template generates a multi-agent scaffold with shared components, CI/CD wiring, and per-agent Databricks Apps — all driven by your choices.",
-  "min_databricks_cli_version": "v0.295.0",
+  "min_databricks_cli_version": "v1.1.0",
   "properties": {
     "input_project_name": {
       "order": 1,
@@ -95,19 +95,13 @@
         }
       }
     },
-    "input_has_eval_dataset": {
+    "input_eval_dataset_source": {
       "order": 12,
       "type": "string",
-      "description": "\nDo you already have an evaluation dataset? If no, the scaffold includes a dataset creation notebook.\ninput_has_eval_dataset",
-      "default": "no",
-      "enum": ["yes", "no"]
-    },
-    "input_eval_scorers": {
-      "order": 13,
-      "type": "string",
-      "description": "\nComma-separated list of MLflow scorer types for production monitoring. Options: relevance, groundedness, safety, chunk_relevance, guideline_adherence.\ninput_eval_scorers",
-      "default": "relevance,groundedness,safety"
+      "description": "\nHow to create the evaluation dataset for this agent.\n  synthetic — generate a golden dataset using an LLM simulator\n  manual — scaffold a notebook with example rows to fill in manually\n  production_traces — build from production traces filtered by tag\n  existing — skip dataset creation (you already have one)\ninput_eval_dataset_source",
+      "default": "synthetic",
+      "enum": ["synthetic", "manual", "production_traces", "existing"]
     }
   },
-  "success_message": "\n*** AgentOps Stacks project created in '{{.input_root_dir}}' ***\n\nNext steps:\n  1. cd {{.input_root_dir}}/src/agents/{{.input_initial_agent_name}}\n  2. uv sync\n  3. cp .env.example .env  — configure Databricks auth\n  4. uv run python app/start_server.py  — run the agent locally\n  5. databricks bundle deploy -t dev  — deploy to Databricks\n\nYour agent: src/agents/{{.input_initial_agent_name}}/agent.py"
+  "success_message": "\n*** AgentOps Stacks project created in '{{.input_root_dir}}' ***\n\nNext steps:\n  1. cd {{.input_root_dir}}/src/agents/{{.input_initial_agent_name}}\n  2. uv sync\n  3. cp .env.example .env  — configure Databricks auth\n  4. uv run python app/start_server.py  — run the agent locally\n  5. databricks bundle deploy -t dev  — deploy to Databricks\n\nYour agent: src/agents/{{.input_initial_agent_name}}/agent.py\nEval config: src/agents/{{.input_initial_agent_name}}/eval/gates.yml"
 }

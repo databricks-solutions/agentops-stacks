@@ -1,0 +1,165 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # Create Evaluation Dataset — {{ .input_initial_agent_name }}
+# MAGIC
+# MAGIC Builds an evaluation dataset for the {{ .input_initial_agent_name }} agent.
+# MAGIC Dataset source: **{{ .input_eval_dataset_source }}**
+
+# COMMAND ----------
+
+# MAGIC %pip install mlflow>=3.10.0 databricks-agents>=1.9.3
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+import os
+
+catalog = os.environ.get("CATALOG", dbutils.widgets.get("catalog") if "dbutils" in dir() else "")
+schema = os.environ.get("SCHEMA", dbutils.widgets.get("schema") if "dbutils" in dir() else "")
+eval_table = f"{catalog}.{schema}.{{ .input_initial_agent_name }}_eval_dataset"
+
+print(f"Target eval table: {eval_table}")
+
+# COMMAND ----------
+
+{{ if (eq .input_eval_dataset_source "synthetic") }}
+# MAGIC %md
+# MAGIC ## Generate synthetic dataset from source documents
+# MAGIC
+# MAGIC Uses `databricks.agents.evals.generate_evals_df` to synthesize evaluation
+# MAGIC questions from your source documents. The generator creates realistic
+# MAGIC questions with expected facts and retrieval context.
+# MAGIC
+# MAGIC Docs: https://docs.databricks.com/aws/en/generative-ai/agent-evaluation/synthesize-evaluation-set
+
+# COMMAND ----------
+
+import pandas as pd
+from databricks.agents.evals import generate_evals_df, estimate_synthetic_num_evals
+
+# TODO: Load your source documents. Each row needs 'content' and 'doc_uri' columns.
+# Option A: From a Delta table
+# docs = spark.table(f"{catalog}.{schema}.source_documents").toPandas()
+
+# Option B: Inline examples (replace with your actual documents)
+docs = pd.DataFrame([
+    {
+        "content": "Databricks is a unified analytics platform for data engineering, "
+                   "data science, and machine learning. It provides collaborative "
+                   "notebooks, automated cluster management, and integration with "
+                   "popular data tools.",
+        "doc_uri": "https://docs.databricks.com/introduction",
+    },
+    {
+        "content": "Unity Catalog provides centralized governance for all data and AI "
+                   "assets across Databricks workspaces. It offers fine-grained access "
+                   "control, data lineage, and auditing capabilities.",
+        "doc_uri": "https://docs.databricks.com/unity-catalog",
+    },
+])
+
+# Estimate how many evals to generate for good coverage
+num_evals = estimate_synthetic_num_evals(docs)
+print(f"Estimated evals for full coverage: {num_evals}")
+
+# Generate synthetic evaluation dataset
+eval_df = generate_evals_df(
+    docs,
+    num_evals=num_evals,
+    agent_description="An AI assistant that answers questions about {{ .input_project_name }}.",
+    question_guidelines="Generate questions a user would realistically ask. "
+                        "Include both simple factual questions and more complex "
+                        "multi-hop reasoning questions.",
+)
+
+print(f"Generated {len(eval_df)} synthetic examples")
+eval_df.head()
+
+{{ else if (eq .input_eval_dataset_source "manual") }}
+# MAGIC %md
+# MAGIC ## Manual evaluation dataset
+# MAGIC
+# MAGIC Add your own examples below. Each example should have an `inputs` dict
+# MAGIC with a `messages` list, and optionally a `category` for gate filtering.
+
+# COMMAND ----------
+
+import pandas as pd
+
+# TODO: Add examples specific to the {{ .input_initial_agent_name }} agent.
+eval_examples = [
+    {
+        "inputs": {"messages": [{"role": "user", "content": "What is Databricks?"}]},
+        "ground_truth": "Databricks is a unified analytics platform.",
+        "category": "core",
+    },
+    {
+        "inputs": {"messages": [{"role": "user", "content": "How do I create a cluster?"}]},
+        "ground_truth": "Navigate to Compute in the workspace sidebar and click Create Cluster.",
+        "category": "core",
+    },
+    # Add more examples here. Use category to control gate filtering in gates.yml:
+    #   "core"      — primary use cases, strictest quality bar
+    #   "edge_case" — boundary conditions, more lenient tolerance
+    #   "safety"    — adversarial inputs for safety testing
+]
+
+eval_df = pd.DataFrame(eval_examples)
+print(f"Created {len(eval_df)} manual examples")
+
+{{ else if (eq .input_eval_dataset_source "production_traces") }}
+# MAGIC %md
+# MAGIC ## Build dataset from production traces
+# MAGIC
+# MAGIC Filters production traces by tag to build an evaluation dataset.
+# MAGIC Tag traces in production with `eval_candidate=true` to include them.
+
+# COMMAND ----------
+
+import mlflow
+import pandas as pd
+
+# Search for traces tagged as eval candidates
+experiment_name = "/Shared/{{ .input_project_name }}_{{ .input_initial_agent_name }}_eval"
+mlflow.set_experiment(experiment_name)
+experiment = mlflow.get_experiment_by_name(experiment_name)
+
+traces = mlflow.search_traces(
+    experiment_ids=[experiment.experiment_id],
+    filter_string="tags.eval_candidate = 'true'",
+    max_results=500,
+)
+
+if len(traces) == 0:
+    print("No traces tagged with eval_candidate=true found.")
+    print("Tag production traces first:")
+    print("  client.set_tag(trace_id, 'eval_candidate', 'true')")
+    dbutils.notebook.exit("No eval candidate traces found")
+
+# Convert traces to eval dataset format
+eval_rows = []
+for _, trace in traces.iterrows():
+    eval_rows.append({
+        "inputs": trace.get("request"),
+        "ground_truth": trace.get("response"),
+        "category": trace.get("tags.category", "core"),
+    })
+
+eval_df = pd.DataFrame(eval_rows)
+print(f"Built {len(eval_df)} examples from production traces")
+
+{{ end }}
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Save as eval dataset
+
+# COMMAND ----------
+
+eval_df.head()
+
+# COMMAND ----------
+
+spark.createDataFrame(eval_df).write.mode("overwrite").saveAsTable(eval_table)
+print(f"Eval dataset saved to {eval_table} with {len(eval_df)} examples")

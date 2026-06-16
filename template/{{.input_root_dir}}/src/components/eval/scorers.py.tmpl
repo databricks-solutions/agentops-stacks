@@ -1,0 +1,88 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # Scorer Registration — {{ .input_project_name }}
+# MAGIC
+# MAGIC Registers built-in and custom scorers for evaluation and production
+# MAGIC monitoring. Run this notebook once (or after adding new scorers) to
+# MAGIC register them in the MLflow experiment.
+# MAGIC
+# MAGIC Registered scorers can be:
+# MAGIC - Referenced by name in each agent's `eval/gates.yml`
+# MAGIC - Used for production quality monitoring via `sample_rate`
+# MAGIC - Retrieved anywhere with `mlflow.genai.scorers.get_scorer(name=...)`
+
+# COMMAND ----------
+
+# MAGIC %pip install mlflow>=3.10.0 databricks-agents>=1.9.3
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+import mlflow
+from mlflow.genai.scorers import (
+    Fluency,
+    RelevanceToQuery,
+    Safety,
+    ToolCallCorrectness,
+    Completeness,
+    scorer,
+)
+
+mlflow.set_experiment("/Shared/{{ .input_project_name }}_eval")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Register built-in scorers
+
+# COMMAND ----------
+
+builtin_scorers = {
+    "safety": Safety(),
+    "fluency": Fluency(),
+    "relevance": RelevanceToQuery(),
+    "groundedness": Completeness(),
+    "tool_call_correctness": ToolCallCorrectness(),
+}
+
+for name, s in builtin_scorers.items():
+    registered = s.register(name=name)
+    print(f"Registered: {registered.name}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Register custom scorers
+# MAGIC
+# MAGIC Define project-specific scorers below. These are shared across all agents.
+# MAGIC After defining, add the scorer name to the relevant agent's `eval/gates.yml`.
+
+# COMMAND ----------
+
+# Example: domain-specific scorer that checks if the response mentions sources.
+# Uncomment, customize, and re-run this notebook to register.
+
+# @scorer
+# def cites_sources(request, response) -> float:
+#     """Check whether the agent's response cites source documents."""
+#     text = response.choices[0].message.content if response.choices else ""
+#     if any(marker in text.lower() for marker in ["source:", "reference:", "according to"]):
+#         return 5.0
+#     return 1.0
+#
+# cites_sources.register(name="cites_sources")
+# print("Registered: cites_sources")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Verify registered scorers
+
+# COMMAND ----------
+
+from mlflow.genai.scorers import get_scorer
+
+for name in builtin_scorers:
+    s = get_scorer(name=name)
+    print(f"  {s.name} (sample_rate={s.sample_rate})")

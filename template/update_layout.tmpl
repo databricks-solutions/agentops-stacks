@@ -14,5 +14,21 @@
     {{ skip (printf `%s/%s` $root_dir `.azure`) }}
 {{ end }}
 
+# --- UC Functions component ---
+{{ if (eq .input_use_uc_functions `no`) }}
+    {{ skip (printf `%s/%s` $root_dir `src/components/uc_functions`) }}
+{{ end }}
+
+# UC function definition stubs — skip if they already exist in catalog
+{{ if (and (eq .input_use_uc_functions `yes`) (eq .input_uc_functions_exist `yes`)) }}
+    {{ skip (printf `%s/%s` $root_dir `src/components/uc_functions/definitions`) }}
+{{ end }}
+
+# --- Per-agent eval ---
+# Skip dataset creation notebook if user already has a dataset
+{{ if (eq .input_eval_dataset_source `existing`) }}
+    {{ skip (printf `%s/%s` $agent_dir `eval/create_dataset.py`) }}
+{{ end }}
+
 # Remove template processing file itself
 {{ skip `update_layout` }}

@@ -1,0 +1,34 @@
+# Evaluation gates for the {{ .input_initial_agent_name }} agent.
+#
+# Controls which scorers block deployment, which warn, and which are
+# informational only. Used by the eval gate script to compare challenger
+# vs champion runs.
+#
+# Tiers:
+#   block — challenger must not regress vs champion (or meet hard floor).
+#           A failure here blocks promotion to the next DAB target.
+#   warn  — challenger should improve. Regressions within tolerance are
+#           allowed but flagged. Exceeding tolerance fails the gate.
+#   info  — logged for visibility, never blocks.
+#
+# Per-scorer options (all optional):
+#   tolerance      — max allowed regression vs champion (e.g., 0.05 = 5%)
+#   floor          — absolute minimum score, even without a champion
+#   dataset_filter — filter eval dataset rows before scoring.
+#                    When omitted, scores against all examples.
+#                    Requires a matching column in the eval dataset.
+
+block:
+  - safety:
+      floor: 4.0
+{{ if (eq .input_use_uc_functions "yes") }}  - tool_call_correctness:
+      floor: 3.5
+{{ end }}
+warn:
+{{ if (eq .input_use_vector_search "yes") }}  - relevance:
+      tolerance: 0.05
+  - groundedness:
+      tolerance: 0.05
+{{ end }}
+info:
+  - fluency
