@@ -2,10 +2,10 @@
 #
 # agentops-stacks plugin installer
 #
-# Installs the agentops-stacks skill (SKILL.md only) into a project at
-# .claude/skills/agentops-stacks/. The skill shells out to `databricks bundle
-# init` against the agentops-stacks repo — the template tree and schema live
-# at the repo root, not next to the skill.
+# Installs agentops-stacks skills (SKILL.md files) into a project at
+# .claude/skills/<skill-name>/. Skills shell out to the Databricks CLI and
+# reference the template tree, schema, and workflow definitions from this repo
+# at run time — nothing is vendored next to the skill files.
 #
 # Usage:
 #   ./install_skills.sh                              # install from local repo
@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SKILL_NAME="agentops-stacks"
+SKILL_NAMES=("agentops-stacks" "agentops-lifecycle")
 SKILLS_DIR=".claude/skills"
 INSTALL_TO_GENIE=false
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
@@ -42,12 +42,13 @@ show_help() {
     echo "  --profile <name>        Databricks CLI profile (default: DEFAULT or \$DATABRICKS_CONFIG_PROFILE)"
     echo ""
     echo "Examples:"
-    echo "  ./install_skills.sh                                # Install agentops-stacks skill"
+    echo "  ./install_skills.sh                                # Install all agentops-stacks skills"
     echo "  ./install_skills.sh --install-to-genie             # Install + upload to workspace"
     echo "  ./install_skills.sh --install-to-genie --profile prod"
     echo ""
     echo -e "${GREEN}Available skills:${NC}"
-    echo "  - agentops-stacks: Scaffold a new DAB project with CI/CD and UC conventions"
+    echo "  - agentops-stacks:    Scaffold a new DAB project with CI/CD and UC conventions"
+    echo "  - agentops-lifecycle: Guide an existing scaffold through the 10-step dev→prod lifecycle"
     echo ""
 }
 
@@ -57,11 +58,15 @@ list_skills() {
     echo -e "  ${GREEN}agentops-stacks${NC}"
     echo "    Scaffold a new DAB project (dev/staging/prod, UC conventions, CI/CD)"
     echo ""
+    echo -e "  ${GREEN}agentops-lifecycle${NC}"
+    echo "    10-step lifecycle guide: data prep → agent dev → eval gate → CI → staging → prod monitoring"
+    echo ""
 }
 
-install_agentops_stacks_skill() {
-    local dest="$SKILLS_DIR/$SKILL_NAME"
-    local src="$SCRIPT_DIR/$SKILL_NAME"
+install_skill() {
+    local skill_name="$1"
+    local dest="$SKILLS_DIR/$skill_name"
+    local src="$SCRIPT_DIR/$skill_name"
 
     if [ ! -f "$src/SKILL.md" ]; then
         echo -e "${RED}Error: SKILL.md not found at $src${NC}"
@@ -70,10 +75,8 @@ install_agentops_stacks_skill() {
 
     rm -rf "$dest"
     mkdir -p "$dest"
-
     cp "$src/SKILL.md" "$dest/SKILL.md"
-
-    echo -e "  ${GREEN}✓${NC} SKILL.md"
+    echo -e "  ${GREEN}✓${NC} $skill_name/SKILL.md"
 }
 
 check_prereqs() {
@@ -243,13 +246,15 @@ if [ ! -d "$SKILLS_DIR" ]; then
     mkdir -p "$SKILLS_DIR"
 fi
 
-echo -e "${GREEN}Installing agentops-stacks skill...${NC}"
-install_agentops_stacks_skill
+echo -e "${GREEN}Installing skills...${NC}"
+for skill in "${SKILL_NAMES[@]}"; do
+    install_skill "$skill"
+done
 
 echo ""
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}Installation complete.${NC}"
-echo -e "${BLUE}Skill installed to: ${SKILLS_DIR}/${SKILL_NAME}${NC}"
+echo -e "${BLUE}Skills installed to: ${SKILLS_DIR}/${NC}"
 echo ""
 
 if [ "$INSTALL_TO_GENIE" = true ]; then

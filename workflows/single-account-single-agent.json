@@ -1,0 +1,337 @@
+{
+  "name": "AgentOps: Single-Account Single-Agent",
+  "description": "End-to-end lifecycle for building, evaluating, and operating a production AI agent on Databricks following the Single-Account Single-Agent pattern. Covers dev → staging → prod with MLflow as the operational spine, evaluation gates at every environment boundary, and SME human-in-the-loop at both dev and production stages.",
+  "version": "1.0.0",
+  "tags": ["agentops", "databricks", "mlflow", "asset-bundles", "single-agent"],
+  "max_retries": 3,
+  "steps": [
+    {
+      "name": "scaffold_project",
+      "display_name": "Scaffold AgentOps Project",
+      "phase": "dev",
+      "description": "Initialize the agentops-stacks DAB scaffold with dev/staging/prod targets, Unity Catalog schema, MLflow experiment, and CI/CD wiring. This is the production envelope the entire agent lifecycle runs inside.",
+      "agent_actions": [
+        "Collect: project_name (^[a-z][a-z0-9_]{2,}$), cloud (aws|azure|gcp), cicd_platform (github_actions|azure_devops|gitlab), destination",
+        "Confirm inputs with user before running",
+        "Write config to /tmp/agentops-stacks-inputs.json",
+        "Run: databricks bundle init https://github.com/sdonohoo-db/agentops-stacks --config-file /tmp/agentops-stacks-inputs.json --output-dir <destination>",
+        "Run: cd <destination>/<project_name> && uv sync",
+        "Run: databricks bundle validate -t dev"
+      ],
+      "validations": [
+        {
+          "name": "manifest_exists",
+          "prompt": "Verify .agentops-stacks/manifest.yml exists and contains contract_version, project_name, cicd_platform, cloud"
+        },
+        {
+          "name": "bundle_valid",
+          "prompt": "Verify databricks bundle validate -t dev exits 0"
+        },
+        {
+          "name": "uv_lock_committed",
+          "prompt": "Verify uv.lock was generated"
+        }
+      ],
+      "bigbook_reference": "Phase 1: Project Conception & Team Formation — Establish governance frameworks before writing any agent code",
+      "escalation_hint": "If bundle init fails: check Databricks CLI version, run `databricks auth login`, verify template schema at repo root"
+    },
+    {
+      "name": "data_preparation",
+      "display_name": "Data Preparation & Vector Search Indexing",
+      "phase": "dev",
+      "description": "Build the data ingestion pipeline that feeds the agent: ingest raw sources (PDFs, documents, structured tables), chunk and embed for semantic search, create Vector Search indexes in the dev Unity Catalog schema. This is the foundation for grounded, reliable agent responses.",
+      "agent_actions": [
+        "Implement ingestion notebook: parse_document / ai_parse_document for unstructured sources",
+        "Configure chunking strategy: 512-token chunks, 64-token overlap, hybrid search (BM25 + semantic)",
+        "Create Vector Search index in dev catalog schema",
+        "Wire metadata filters for category-scoped retrieval",
+        "Implement data quality checks (PII detection, format validation)",
+        "Log ingestion metrics to MLflow experiment"
+      ],
+      "validations": [
+        {
+          "name": "vector_index_queryable",
+          "prompt": "Verify Vector Search index exists in dev catalog and returns results for a test query"
+        },
+        {
+          "name": "data_pipeline_runs",
+          "prompt": "Verify ingestion notebook runs end-to-end without errors on sample data"
+        },
+        {
+          "name": "chunk_quality",
+          "prompt": "Verify chunk sizes are within configured bounds and overlap is applied correctly"
+        }
+      ],
+      "bigbook_reference": "Phase 2: Data Preprocessing & Indexing — Unoptimized retrieval degrades every downstream step; metadata filters + hybrid search are non-negotiable",
+      "escalation_hint": "If Vector Search index fails: check Unity Catalog permissions, verify embedding model endpoint availability, validate Delta table format"
+    },
+    {
+      "name": "agent_development",
+      "display_name": "Agent Development & Dev Deployment",
+      "phase": "dev",
+      "description": "Implement the agent: tool & function library, core reasoning logic with MLflow tracing on every decision point, input/output guardrails, and registration to Unity Catalog dev schema. MLflow tracing is non-negotiable — every span must be logged for evaluation and debugging.",
+      "agent_actions": [
+        "Implement tool & function library (register each tool in Unity Catalog AI Functions)",
+        "Build agent class extending MLflow PythonModel with @mlflow.trace on predict()",
+        "Add guardrails: input validation (PII scrub, injection detection), output safety checks",
+        "Implement structured error handling with escalation to human review for ambiguous cases",
+        "Run notebooks/register_agent.py to register model with @champion alias in dev schema",
+        "Deploy agent: databricks bundle deploy -t dev",
+        "Deploy Databricks App in dev workspace (App Deployment Workflow: Agent Deployment → App Deployment)",
+        "Verify App is accessible at dev URL — this is the surface SME will use for HITL review in step 5",
+        "Run unit tests: uv run pytest"
+      ],
+      "validations": [
+        {
+          "name": "agent_registered",
+          "prompt": "Verify model exists in Unity Catalog dev schema with @champion alias"
+        },
+        {
+          "name": "mlflow_traces_present",
+          "prompt": "Verify MLflow traces are logged for at least one sample prediction — check experiment for spans"
+        },
+        {
+          "name": "dev_app_accessible",
+          "prompt": "Verify Databricks App is deployed and accessible in dev workspace — confirm App URL is reachable"
+        },
+        {
+          "name": "unit_tests_pass",
+          "prompt": "Verify uv run pytest exits 0 (exit 5 = no tests collected is also acceptable at this stage)"
+        },
+        {
+          "name": "bundle_deployed",
+          "prompt": "Verify databricks bundle deploy -t dev completes without error"
+        }
+      ],
+      "bigbook_reference": "Phase 3 & 4: Agent Architecture Design & Development — Design for observability from day one; every decision point must be traceable. Evaluation is built alongside development, never after.",
+      "escalation_hint": "If model registration fails: check Unity Catalog schema exists, verify MLflow experiment is configured in databricks.yml, check compute permissions. If App deploy fails: verify app.yml resource is declared in databricks.yml dev target."
+    },
+    {
+      "name": "offline_evaluation",
+      "display_name": "Offline Evaluation & Eval Gate Setup",
+      "phase": "dev",
+      "description": "Build the evaluation framework that gates every subsequent promotion. Curate a golden dataset with domain SME input, implement the eval gate with MLflow scorers (Safety + Correctness at minimum), set thresholds, and verify the gate runs and passes. This gate will block CI if breached.",
+      "agent_actions": [
+        "Curate golden dataset: 50-100 SME-labeled (input, expected_output) pairs in evaluation/golden_dataset.jsonl",
+        "Implement evaluation/gate.py using mlflow.genai.evaluate() with Safety and Correctness scorers",
+        "Configure evaluation/thresholds.yml: Safety threshold 1.0 blocking, Correctness threshold 0.8 warning (adjust after baseline)",
+        "Run gate locally: uv run python evaluation/gate.py",
+        "Log eval run to MLflow experiment for baseline tracking",
+        "Add domain-specific custom scorer if needed (implement via mlflow.genai.make_judge())"
+      ],
+      "validations": [
+        {
+          "name": "golden_dataset_present",
+          "prompt": "Verify evaluation/golden_dataset.jsonl exists with at least 20 labeled examples"
+        },
+        {
+          "name": "gate_passes_locally",
+          "prompt": "Verify uv run python evaluation/gate.py exits 0 — all blocking thresholds met"
+        },
+        {
+          "name": "eval_logged_to_mlflow",
+          "prompt": "Verify MLflow experiment contains an eval run with Safety/mean and correctness/mean metrics"
+        }
+      ],
+      "bigbook_reference": "Principle of Flow — 'Evaluations are a revenue generator, not a cost center.' The eval gate is the enforcement mechanism for quality; it must exist before any code reaches staging.",
+      "escalation_hint": "If Safety score < 1.0: review flagged traces in MLflow, add output guardrails to agent, re-evaluate. If Correctness < threshold: expand golden dataset, refine prompt, check retrieval quality."
+    },
+    {
+      "name": "sme_feedback_dev",
+      "display_name": "SME Human-in-the-Loop (Dev)",
+      "phase": "dev",
+      "description": "Calibrate the evaluation framework against real domain expert judgment. SME reviews sampled agent traces, scores them on a structured rubric, and we align the LLM judge to their criteria. Target >80% agreement before promoting to staging. This step closes the loop between automated evaluation and human ground truth.",
+      "agent_actions": [
+        "Export 50 representative traces from MLflow experiment for SME review",
+        "Share traces via Databricks Apps (no workspace access required for SME)",
+        "SME scores each trace: accuracy (1-5), tone (1-5), completeness (1-5), safety (pass/fail)",
+        "Run mlflow.genai.align() or manual calibration: compare LLM judge scores to SME scores",
+        "Identify disagreements (target <20%) and refine judge prompt with disagreement examples as few-shots",
+        "Update thresholds.yml to reflect calibrated baselines",
+        "Document SME sign-off and calibration score in evaluation/sme_calibration.md"
+      ],
+      "validations": [
+        {
+          "name": "sme_signoff",
+          "prompt": "Verify evaluation/sme_calibration.md exists and contains: reviewer name, date, calibration agreement percentage, and explicit sign-off"
+        },
+        {
+          "name": "judge_calibrated",
+          "prompt": "Verify judge calibration agreement is >= 80% (documented in sme_calibration.md)"
+        }
+      ],
+      "bigbook_reference": "Principle of Feedback — SME labels 50-100 representative outputs; LLM judge scores independently; measure agreement > 80%; refine judge prompt using disagreement examples as few-shots. Repeat until threshold met.",
+      "escalation_hint": "If SME agreement < 80% after 2 rounds: escalate to product owner to clarify evaluation rubric. The rubric definition is a business decision, not an engineering one."
+    },
+    {
+      "name": "ci_staging",
+      "display_name": "CI Gate — PR to Main (Staging)",
+      "phase": "staging",
+      "description": "Open the PR to main. The CI workflow runs unit tests, bundle validation against staging target, and the eval gate. All checks must be green before merge. This is the first automated quality gate that runs in a fresh, isolated environment — validating that the agent is portable and not just working on the developer's machine.",
+      "agent_actions": [
+        "Push feature branch and open PR with title: [project-name] description",
+        "Verify CI workflow triggers: {project_name}-bundle-ci.yml",
+        "Monitor: unit_tests job (uv run pytest)",
+        "Monitor: validate_bundle job (databricks bundle validate -t staging)",
+        "Monitor: eval_gate job (uv run python evaluation/gate.py) — runs only if evaluation/thresholds.yml present",
+        "Address any failures before merge — do not skip or suppress CI checks",
+        "Merge PR (squash merge) once all checks pass"
+      ],
+      "validations": [
+        {
+          "name": "ci_checks_green",
+          "prompt": "Verify all CI jobs in the PR are green: unit_tests, validate_bundle, eval_gate (if present)"
+        },
+        {
+          "name": "pr_merged",
+          "prompt": "Verify PR is merged to main"
+        }
+      ],
+      "bigbook_reference": "Principle of Flow — fast, reliable delivery from dev to production. CI gates enforce this by catching regressions in a clean environment before they reach shared infrastructure.",
+      "escalation_hint": "If bundle validate -t staging fails: check staging workspace host in databricks.yml, verify secrets are configured in CI environment. If eval gate fails: do not skip — fix the agent first."
+    },
+    {
+      "name": "staging_integration_tests",
+      "display_name": "Staging Deployment & Integration Tests",
+      "phase": "staging",
+      "description": "Deploy to the staging workspace and run the full integration and validation test suites. Staging mirrors production configuration — this is where cross-component integration is verified: tool calls against real endpoints, Vector Search queries against the staging index, agent-to-model-serving roundtrips.",
+      "agent_actions": [
+        "Trigger or confirm CD to staging: databricks bundle deploy -t staging (via CD workflow or manual)",
+        "Verify Model Serving endpoint is healthy in staging workspace",
+        "Verify MLflow Tracking Server in staging workspace is receiving test logs (separate from dev MLflow server)",
+        "Run Tool Integration Tests: each tool makes real API calls against staging endpoints",
+        "Run Agent Integration Tests: full agent invocations against staging model serving",
+        "Run Tool Validation Tests: verify tool schemas, permissions, timeout behaviors",
+        "Run Agent Validation Tests: end-to-end scenarios covering happy path + known edge cases",
+        "Confirm test run traces appear in staging MLflow experiment",
+        "Review test results in CI — staging CD workflow: {project_name}-bundle-cd-staging.yml"
+      ],
+      "validations": [
+        {
+          "name": "staging_deployed",
+          "prompt": "Verify Databricks App and Model Serving endpoint are live in staging workspace"
+        },
+        {
+          "name": "staging_mlflow_logging",
+          "prompt": "Verify staging MLflow Tracking Server has at least one trace from the integration test run — check staging workspace MLflow experiment"
+        },
+        {
+          "name": "integration_tests_pass",
+          "prompt": "Verify Tool Integration Tests and Agent Integration Tests all pass in CI"
+        },
+        {
+          "name": "validation_tests_pass",
+          "prompt": "Verify Tool Validation Tests and Agent Validation Tests all pass in CI"
+        }
+      ],
+      "bigbook_reference": "Pattern 1: Single Account Single Agent — testing strategy is Unit (dev) → Integration (staging) → Validation + SME review (prod). Staging is the integration checkpoint.",
+      "escalation_hint": "If integration tests fail against real endpoints: check service account permissions, verify endpoint URLs are correct in staging target config, review MLflow traces for failed tool calls"
+    },
+    {
+      "name": "production_deployment",
+      "display_name": "Production Deployment via CD",
+      "phase": "prod",
+      "description": "Merge to the release branch triggers continuous deployment to production. The CD pipeline deploys the DAB to the prod target, wires the production Model Serving endpoint, and deploys the Databricks App for end-user access. Production uses the Prod Unity Catalog — read-only access from dev is severed.",
+      "agent_actions": [
+        "Merge main to release branch (or tag) to trigger CD pipeline",
+        "Monitor CD workflow: {project_name}-bundle-cd-prod.yml",
+        "Verify: databricks bundle deploy -t prod completes without error",
+        "Run post-deployment smoke test: invoke agent with canonical query, verify non-error response",
+        "Verify Model Serving endpoint is live and healthy (HTTP 200 on /health)",
+        "Verify Databricks App is accessible at production URL",
+        "Register production model version with @champion alias in prod Unity Catalog schema"
+      ],
+      "validations": [
+        {
+          "name": "prod_bundle_deployed",
+          "prompt": "Verify databricks bundle deploy -t prod exits 0 and CD workflow is green"
+        },
+        {
+          "name": "endpoint_healthy",
+          "prompt": "Verify Model Serving endpoint returns HTTP 200 on /health check in prod workspace"
+        },
+        {
+          "name": "smoke_test_passes",
+          "prompt": "Verify agent responds to a canonical test query with a non-error, non-empty response"
+        },
+        {
+          "name": "prod_model_registered",
+          "prompt": "Verify prod Unity Catalog schema has model registered with @champion alias"
+        }
+      ],
+      "bigbook_reference": "Version Everything — prompts, tools, routing logic, data — all must be versioned and promotable. The @champion alias in prod UC is the single source of truth for what's running in production.",
+      "escalation_hint": "If prod deployment fails: do not hotfix directly in prod. Roll back by re-running CD with previous git tag. Investigate in staging first."
+    },
+    {
+      "name": "batch_inferencing_eval",
+      "display_name": "Batch Inferencing & Production Eval Baseline",
+      "phase": "prod",
+      "description": "Run batch inferencing against a representative production dataset to establish baseline quality metrics. This is the first real-world evaluation — production data distributions differ from golden datasets. Log all traces to MLflow, run the eval gate against production traces, and record the baseline in Delta tables for drift monitoring.",
+      "agent_actions": [
+        "Configure and run Batch Inferencing job against production dataset (Databricks Job in DAB)",
+        "Verify all batch traces logged to MLflow with full spans",
+        "Run eval gate against batch results: uv run python evaluation/gate.py (point to batch output)",
+        "Log baseline metrics to Delta table: P95 latency, Safety/mean, Correctness/mean, cost/request",
+        "Compare production metrics to staging baseline — flag any >10% regression",
+        "Document baseline in evaluation/production_baseline.md"
+      ],
+      "validations": [
+        {
+          "name": "batch_job_completes",
+          "prompt": "Verify batch inferencing Databricks Job completes without errors in prod workspace"
+        },
+        {
+          "name": "production_eval_passes",
+          "prompt": "Verify eval gate passes against production batch results — all blocking thresholds met"
+        },
+        {
+          "name": "baseline_logged",
+          "prompt": "Verify evaluation/production_baseline.md exists with P95 latency, Safety/mean, Correctness/mean, cost/request values"
+        }
+      ],
+      "bigbook_reference": "Phase 5: Feedback Collection & Monitoring — 'All metrics → Delta tables; dashboards via Databricks Apps.' The batch eval baseline is the anchor for all future drift detection.",
+      "escalation_hint": "If eval gate fails on production traces: do NOT re-tune thresholds to pass. Escalate to team — a production failure at this stage requires root cause analysis before going live to users."
+    },
+    {
+      "name": "production_monitoring",
+      "display_name": "Production Monitoring & Continuous Feedback Loop",
+      "phase": "prod",
+      "description": "Wire the complete production observability stack: real-time MLflow trace logging, user feedback API, quality dashboard, and alerting. Configure the SME sampling loop for continuous human-in-the-loop review. This step closes the AgentOps continuous improvement loop: production traces feed back into the eval dataset, driving future iterations.",
+      "agent_actions": [
+        "Verify mlflow.autolog() is active on the production Model Serving endpoint",
+        "Implement user feedback endpoint: mlflow.log_feedback() wired to thumbs up/down UI in Databricks App",
+        "Deploy production monitoring dashboard (Databricks App) with: P95 latency, error rate, judge score trends, cost/request, user satisfaction",
+        "Configure alerts in Databricks: latency P95 > 2s (warning), > 5s (paging); error rate > 2% (warning); Safety/mean < 0.99 (paging); cost/request > $0.05 (warning)",
+        "Set up SME sampling job: weekly export of 50 production traces for SME review via Apps UI",
+        "Document monitoring runbook: what each alert means, who owns it, how to respond"
+      ],
+      "validations": [
+        {
+          "name": "traces_logging",
+          "prompt": "Verify MLflow traces are appearing for live production requests — check MLflow experiment for recent entries"
+        },
+        {
+          "name": "dashboard_live",
+          "prompt": "Verify production monitoring Databricks App is accessible and displaying real-time metrics from the baseline dataset"
+        },
+        {
+          "name": "alerts_configured",
+          "prompt": "Verify at least latency, error rate, and Safety score alerts are configured and enabled"
+        },
+        {
+          "name": "feedback_loop_wired",
+          "prompt": "Verify mlflow.log_feedback() is called when a user submits feedback — test with a manual thumbs up/down in the App"
+        }
+      ],
+      "bigbook_reference": "Principle of Continuous Learning — 'Eval results inform next sprint priorities → production traces added to eval dataset → judge alignment recalibrated quarterly → prompt optimization driven by failure modes.' This step operationalizes that loop.",
+      "escalation_hint": "If traces are not appearing: check Model Serving endpoint environment variables for MLFLOW_TRACKING_URI, verify service principal has WRITE access to the MLflow experiment in prod"
+    }
+  ],
+  "routing_notes": {
+    "pattern": "Single-Account Single-Agent",
+    "git_flow": "dev branch → PR to main (CI gate) → merge to main → merge to release (CD to prod)",
+    "unity_catalog": "Prod catalog is READ-ONLY from dev. Agent reads from dev catalog in dev/staging; prod agent uses prod catalog exclusively.",
+    "mlflow_spine": "One MLflow tracking server per workspace. Experiment per agent per environment. @champion alias governs what runs in production.",
+    "escalation_path": "Step fails after max_retries → Slack DM to team lead → human reviews MLflow trace → documents root cause → unblocks workflow"
+  }
+}
