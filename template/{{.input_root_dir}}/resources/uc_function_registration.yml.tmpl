@@ -1,0 +1,14 @@
+resources:
+  jobs:
+    uc_function_registration:
+      name: "${bundle.name}-uc-function-registration"
+      description: "Register UC functions from SQL/Python definitions into ${var.catalog}.${var.schema}"
+      tasks:
+        - task_key: register_functions
+          notebook_task:
+            notebook_path: ../src/components/tools/registry.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              app_sp: ""  # TODO: set app service principal client ID
+          existing_cluster_id: "" # TODO: set cluster ID or use job_cluster_key

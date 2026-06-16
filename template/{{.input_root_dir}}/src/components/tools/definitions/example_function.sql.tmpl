@@ -1,0 +1,11 @@
+-- Example Unity Catalog SQL function definition.
+-- Registered automatically by the registry.py notebook.
+-- File name becomes the function name (e.g., example_function.sql → example_function).
+
+CREATE OR REPLACE FUNCTION ${var.catalog}.${var.schema}.example_function(
+    input_text STRING COMMENT 'The text to process'
+)
+RETURNS STRING
+LANGUAGE SQL
+COMMENT 'Example UC function — replace with your logic'
+RETURN UPPER(input_text);

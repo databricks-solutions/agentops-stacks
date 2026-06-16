@@ -1,0 +1,21 @@
+"""Example Python UC function.
+
+Requirements for Python UC functions:
+- Function name must match the file name (e.g., example_python_function.py → def example_python_function)
+- All parameters and return type must have type hints
+- Docstring must use Google-style format (Args/Returns sections)
+- Library imports must be inside the function body
+- *args and **kwargs are not supported
+"""
+
+
+def example_python_function(input_text: str) -> str:
+    """Process the input text and return the result.
+
+    Args:
+        input_text (str): The text to process.
+
+    Returns:
+        str: The processed text.
+    """
+    return input_text.upper()

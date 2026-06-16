@@ -18,6 +18,8 @@ include:
 {{ end }}
 {{ if (and (eq .input_use_vector_search "yes") (eq .input_has_chunked_table "no")) }}  - ./resources/data_pipeline.yml
 {{ end }}
+{{ if (eq .input_use_uc_functions "yes") }}  - ./resources/uc_function_registration.yml
+{{ end }}
 
 resources:
   apps:

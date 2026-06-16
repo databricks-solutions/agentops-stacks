@@ -1,0 +1,130 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # UC Function Registration
+# MAGIC Registers SQL and Python functions from the `definitions/` folder into Unity Catalog,
+# MAGIC then grants EXECUTE to the app service principal.
+# MAGIC
+# MAGIC **To add a new function:** create a `.py` or `.sql` file in `definitions/`
+# MAGIC and re-run this notebook. The file name becomes the function name.
+
+# COMMAND ----------
+
+# MAGIC %pip install unitycatalog-ai[databricks]
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+dbutils.widgets.text("catalog", "", "Unity Catalog name")
+dbutils.widgets.text("schema", "", "Schema name")
+dbutils.widgets.text("app_sp", "", "App service principal client ID (for EXECUTE grant)")
+
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
+app_sp = dbutils.widgets.get("app_sp")
+
+# COMMAND ----------
+
+spark.sql(f"USE CATALOG {catalog}")
+spark.sql(f"USE SCHEMA {schema}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Initialize function client
+
+# COMMAND ----------
+
+from unitycatalog.ai.core.databricks import DatabricksFunctionClient
+
+client = DatabricksFunctionClient()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Register definitions
+# MAGIC
+# MAGIC - `.py` files: must define a function matching the file name, with type hints
+# MAGIC   and a Google-style docstring. Registered via `client.create_python_function()`.
+# MAGIC - `.sql` files: must contain a `CREATE FUNCTION` statement.
+# MAGIC   Registered via `spark.sql()`.
+
+# COMMAND ----------
+
+import importlib.util
+from pathlib import Path
+
+notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+definitions_dir = Path(f"/Workspace{notebook_path}").parent / "definitions"
+
+registered = []
+
+# --- Python definitions ---
+for py_file in sorted(definitions_dir.glob("*.py")):
+    if py_file.name.startswith("_"):
+        continue
+    spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    func = getattr(mod, py_file.stem, None)
+    if func is None or not callable(func):
+        print(f"  SKIP: {py_file.name} — no callable named '{py_file.stem}' found")
+        continue
+
+    client.create_python_function(
+        func=func,
+        catalog=catalog,
+        schema=schema,
+        replace=True,
+    )
+    registered.append(f"{catalog}.{schema}.{py_file.stem}")
+    print(f"  OK (python): {catalog}.{schema}.{py_file.stem}")
+
+# --- SQL definitions ---
+for sql_file in sorted(definitions_dir.glob("*.sql")):
+    sql = sql_file.read_text().replace("${var.catalog}", catalog).replace("${var.schema}", schema)
+    func_name = f"{catalog}.{schema}.{sql_file.stem}"
+    print(f"Registering: {func_name}...", end=" ")
+    try:
+        spark.sql(sql)
+        print("OK")
+    except Exception as e:
+        print(f"ERROR: {e}")
+        continue
+    registered.append(func_name)
+
+if not registered:
+    print("No definitions found in definitions/. Add .py or .sql files and re-run.")
+
+print(f"\nRegistered {len(registered)} function(s).")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Grant EXECUTE
+
+# COMMAND ----------
+
+if app_sp:
+    for func_name in registered:
+        try:
+            spark.sql(f"GRANT EXECUTE ON FUNCTION {func_name} TO `{app_sp}`")
+            print(f"  Granted EXECUTE on {func_name} to {app_sp}")
+        except Exception as e:
+            print(f"  Grant failed for {func_name}: {e}")
+else:
+    print("No app_sp provided — skipping EXECUTE grants.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Verify
+
+# COMMAND ----------
+
+functions = spark.sql(f"SHOW FUNCTIONS IN {catalog}.{schema}").collect()
+print(f"\nUC functions in {catalog}.{schema}:")
+for f in sorted(functions, key=lambda x: x.function):
+    if not f.function.startswith("builtin"):
+        print(f"  {f.function}")
