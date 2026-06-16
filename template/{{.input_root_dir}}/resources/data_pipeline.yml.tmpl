@@ -1,0 +1,14 @@
+resources:
+  pipelines:
+    data_pipeline:
+      name: ${bundle.target}-{{ .input_project_name }}-data-pipeline
+      catalog: ${var.catalog}
+      target: ${var.schema}
+      libraries:
+        - notebook:
+            path: ../src/components/retriever/data_pipeline.py
+      configuration:
+        catalog: ${var.catalog}
+        schema: ${var.schema}
+      channel: PREVIEW
+      development: true

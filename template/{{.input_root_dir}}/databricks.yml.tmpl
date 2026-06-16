@@ -14,6 +14,10 @@ include:
   - ./resources/experiment.yml
   - ./resources/schemas.yml
   - ./resources/volumes.yml
+{{ if (eq .input_use_vector_search "yes") }}  - ./resources/vector_search.yml
+{{ end }}
+{{ if (and (eq .input_use_vector_search "yes") (eq .input_has_chunked_table "no")) }}  - ./resources/data_pipeline.yml
+{{ end }}
 
 resources:
   apps:

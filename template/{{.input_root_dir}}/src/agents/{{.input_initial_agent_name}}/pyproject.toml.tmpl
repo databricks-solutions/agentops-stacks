@@ -13,6 +13,8 @@ dependencies = [
     "databricks-agents>=1.9.3",
     "langgraph>=1.1.0",
     "python-dotenv>=1.2.1",
+{{ if (eq .input_use_vector_search "yes") }}    "databricks-vectorsearch",
+{{ end }}
 ]
 
 [tool.uv]
