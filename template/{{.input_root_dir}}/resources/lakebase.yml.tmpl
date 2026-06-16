@@ -1,0 +1,12 @@
+resources:
+  database_instances:
+    memory:
+      name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
+      capacity: CU_1
+
+  database_catalogs:
+    memory_catalog:
+      name: {{ .input_project_name }}_memory
+      database_instance_name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
+      database_name: default
+      create_database_if_not_exists: true

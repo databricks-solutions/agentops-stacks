@@ -15,6 +15,9 @@ dependencies = [
     "python-dotenv>=1.2.1",
 {{ if (eq .input_use_vector_search "yes") }}    "databricks-vectorsearch",
 {{ end }}
+{{ if (eq .input_use_lakebase "yes") }}    "langgraph-checkpoint-postgres",
+    "psycopg[binary]",
+{{ end }}
 ]
 
 [tool.uv]

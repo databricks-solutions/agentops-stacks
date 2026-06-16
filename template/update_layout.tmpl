@@ -37,6 +37,11 @@
     {{ skip (printf `%s/%s` $agent_dir `eval/create_dataset.py`) }}
 {{ end }}
 
+# --- Lakebase ---
+{{ if (eq .input_use_lakebase `no`) }}
+    {{ skip (printf `%s/%s` $root_dir `resources/lakebase.yml`) }}
+{{ end }}
+
 # DLT pipeline + notebook — skip if user already has a chunked table
 {{ if (and (eq .input_use_vector_search `yes`) (eq .input_has_chunked_table `yes`)) }}
     {{ skip (printf `%s/%s` $root_dir `src/components/retriever/data_pipeline.py`) }}

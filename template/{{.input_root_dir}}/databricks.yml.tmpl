@@ -20,6 +20,8 @@ include:
 {{ end }}
 {{ if (eq .input_use_uc_functions "yes") }}  - ./resources/uc_function_registration.yml
 {{ end }}
+{{ if (eq .input_use_lakebase "yes") }}  - ./resources/lakebase.yml
+{{ end }}
 
 resources:
   apps:
@@ -34,6 +36,12 @@ resources:
           experiment:
             experiment_id: ${resources.experiments.experiment.id}
             permission: "CAN_MANAGE"
+{{ if (eq .input_use_lakebase "yes") }}        - name: "memory"
+          database:
+            instance_name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
+            database_name: "default"
+            permission: "CAN_CONNECT_AND_CREATE"
+{{ end }}
 
 sync:
   include:
