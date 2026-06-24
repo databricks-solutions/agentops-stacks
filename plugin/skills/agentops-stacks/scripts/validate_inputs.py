@@ -23,13 +23,7 @@ VALID_CICD = {
     "gitlab",
 }
 VALID_MEMORY_TYPES = {"short_term", "long_term", "both"}
-VALID_SCORERS = {
-    "relevance",
-    "groundedness",
-    "safety",
-    "chunk_relevance",
-    "guideline_adherence",
-}
+VALID_EVAL_SOURCES = {"synthetic", "manual", "production_traces", "existing"}
 YES_NO = {"yes", "no"}
 
 
@@ -89,11 +83,8 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
         "input_use_vector_search",
         "input_has_chunked_table",
         "input_use_lakebase",
-        "input_use_genie",
-        "input_use_local_tools",
         "input_use_uc_functions",
         "input_uc_functions_exist",
-        "input_has_eval_dataset",
     ]:
         val = config.get(key, "no")
         if val not in YES_NO:
@@ -117,16 +108,13 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
             "The setting will be ignored."
         )
 
-    # --- Eval scorers ---
-    scorers_raw = config.get("input_eval_scorers", "")
-    if scorers_raw:
-        scorers = [s.strip() for s in scorers_raw.split(",") if s.strip()]
-        invalid = [s for s in scorers if s not in VALID_SCORERS]
-        if invalid:
-            errors.append(
-                f"Invalid eval scorers: {', '.join(invalid)}. "
-                f"Valid options: {', '.join(sorted(VALID_SCORERS))}"
-            )
+    # --- Eval dataset source ---
+    eval_source = config.get("input_eval_dataset_source", "synthetic")
+    if eval_source not in VALID_EVAL_SOURCES:
+        errors.append(
+            f"Invalid eval_dataset_source '{eval_source}'. "
+            f"Must be one of: {', '.join(sorted(VALID_EVAL_SOURCES))}"
+        )
 
     return errors, warnings
 

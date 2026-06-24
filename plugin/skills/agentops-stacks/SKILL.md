@@ -42,32 +42,50 @@ Collect inputs **one at a time, in order**. Skip questions that don't apply.
 ### Phase 2: Data sources
 
 6. **use_vector_search** — "Does your agent need to search unstructured data (RAG)?" → `yes`/`no`
-   - If yes → 7. **has_chunked_table** — "Do you already have a chunked Delta table?" → `yes`/`no`
+   - If yes → 7. **has_chunked_table** — "Do you already have a chunked Delta table to sync from? If no, the scaffold includes ingestion and preparation notebooks." → `yes`/`no`
 7. **use_lakebase** — "Does your agent need memory (conversation history)?" → `yes`/`no`
-   - If yes → 9. **memory_type** → `short_term`, `long_term`, or `both`
-8. **use_genie** — "Does your agent need to query structured data via Genie?" → `yes`/`no`
-   - If yes → 11. **genie_space_id** — ID or blank to configure later
+   - If yes → 9. **memory_type** — "What kind of memory?" → `short_term`, `long_term`, or `both`
 
 ### Phase 3: Tools
 
-9. **use_local_tools** — "Include example local Python tools?" → `yes` (default) / `no`
-10. **use_uc_functions** — "Will your agent call Unity Catalog functions?" → `yes`/`no`
-    - If yes → 14. **uc_functions_exist** — "Already defined in your catalog?" → `yes`/`no`
+8. **use_uc_functions** — "Will your agent call Unity Catalog functions as tools?" → `yes`/`no`
+   - If yes → 9. **uc_functions_exist** — "Are those UC functions already defined in your catalog?" → `yes`/`no`
 
 ### Phase 4: Evaluation
 
-11. **has_eval_dataset** — "Do you already have an evaluation dataset?" → `yes`/`no`
-12. **eval_scorers** — Comma-separated from: `relevance`, `groundedness`, `safety`, `chunk_relevance`, `guideline_adherence`. Default: `relevance,groundedness,safety`.
+10. **eval_dataset_source** — "How would you like to create the evaluation dataset?"
+    - `synthetic` — generate a golden dataset using an LLM simulator (default)
+    - `manual` — scaffold a notebook with example rows to fill in manually
+    - `production_traces` — build from production traces filtered by tag
+    - `existing` — skip dataset creation (you already have one)
 
 ### Phase 5: Validate, confirm, scaffold
 
-Write inputs to `/tmp/agentops-stacks-inputs.json` (see schema for all keys). Validate:
+Write all collected inputs to `/tmp/agentops-stacks-inputs.json` using these exact keys:
+
+```json
+{
+  "input_project_name": "<value>",
+  "input_initial_agent_name": "<value>",
+  "input_cloud": "<value>",
+  "input_cicd_platform": "<value>",
+  "input_use_vector_search": "yes|no",
+  "input_has_chunked_table": "yes|no",
+  "input_use_lakebase": "yes|no",
+  "input_memory_type": "short_term|long_term|both",
+  "input_use_uc_functions": "yes|no",
+  "input_uc_functions_exist": "yes|no",
+  "input_eval_dataset_source": "synthetic|manual|production_traces|existing"
+}
+```
+
+Omit conditional keys whose parent is `no` (e.g. omit `input_has_chunked_table` if `input_use_vector_search` is `no`). The schema defaults handle those. Validate:
 
 ```bash
 python scripts/validate_inputs.py --config /tmp/agentops-stacks-inputs.json
 ```
 
-Confirm with user, listing enabled components. Run:
+Show the user a summary of which components are enabled, then confirm before running:
 
 ```bash
 bash scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination <destination>
@@ -75,14 +93,23 @@ bash scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination
 
 ### Phase 6: Next steps
 
-See [reference/post-scaffold.md](reference/post-scaffold.md) for next-steps checklist.
+See [reference/post-scaffold.md](reference/post-scaffold.md) for the full next-steps checklist.
 
 After scaffolding:
-1. `cd <project_name>` and run `uv sync`
-2. Set up `.env` with Databricks auth profile
-3. `uv run start-app` to run the agent locally
-4. `uv run agent-evaluate` to run evaluation
-5. `databricks bundle deploy -t dev` to deploy
+1. `cd <destination>/<project_name>` and run `uv sync`
+2. Set workspace hosts in `databricks.yml` and create Unity Catalog catalogs — see `docs/setup.md`
+3. `databricks bundle validate -t dev`
+4. `databricks bundle deploy -t dev` to deploy
+
+Point the user at the reference example closest to what they just scaffolded:
+
+| If they enabled... | Best reference example |
+|---|---|
+| Vector Search (RAG) | [`examples/simple-rag/`](../../../examples/simple-rag/) — full RAG agent: VS ingestion, retrieval, Foundation Model API, Databricks App, eval gate |
+| Lakebase memory or multiple agents | [`examples/multi-agent/`](../../../examples/multi-agent/) — three agents sharing tools, each an independent App, per-agent eval datasets |
+| Neither (minimal start) | [`examples/hello-agent/`](../../../examples/hello-agent/) — minimal pyfunc agent: register → evaluate → gate loop |
+
+Each example is a complete reference with agent code, DAB resources, setup notebooks, and an eval gate. Encourage the user to copy patterns from the nearest example rather than starting from scratch.
 
 ## Adding more agents
 
