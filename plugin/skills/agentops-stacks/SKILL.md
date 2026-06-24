@@ -21,6 +21,7 @@ If any are missing, surface install instructions and stop.
 
 ```
 Scaffold Progress:
+- [ ] Phase 0: Infer intent
 - [ ] Phase 1: Infrastructure inputs
 - [ ] Phase 2: Data sources
 - [ ] Phase 3: Tools
@@ -29,9 +30,47 @@ Scaffold Progress:
 - [ ] Phase 6: Surface next steps
 ```
 
-Collect inputs **one at a time, in order**. Skip questions that don't apply.
+### Phase 0: Infer intent from what the user said
+
+Before asking anything, read the user's description and pre-fill as many inputs as you can. Only ask about inputs that are genuinely unknown or ambiguous. Show what you've inferred so the user can correct it.
+
+**Keyword → input mapping:**
+
+| If the user mentions… | Infer |
+|---|---|
+| "RAG", "retrieval", "search documents", "knowledge base", "unstructured data" | `use_vector_search: yes` |
+| "already chunked", "existing Delta table", "I have a chunked table" | `has_chunked_table: yes` |
+| "memory", "remember conversations", "conversation history", "persistent context" | `use_lakebase: yes` — still ask `memory_type` unless they specified it |
+| "short-term memory", "session memory", "within-session" | `use_lakebase: yes`, `memory_type: short_term` |
+| "long-term memory", "cross-session memory", "persistent memory" | `use_lakebase: yes`, `memory_type: long_term` |
+| "UC functions", "Unity Catalog tools", "catalog functions", "SQL tools" | `use_uc_functions: yes` |
+| "functions already exist", "existing UC functions" | `use_uc_functions: yes`, `uc_functions_exist: yes` |
+| "GitHub", "GitHub Actions" | `cicd_platform: github_actions` |
+| "GitHub Enterprise", "GHES" | `cicd_platform: github_actions_for_github_enterprise_servers` |
+| "GitLab" | `cicd_platform: gitlab` |
+| "Azure DevOps", "ADO" | `cicd_platform: azure_devops` |
+| "AWS", "Amazon" | `cloud: aws` |
+| "Azure" (non-DevOps context) | `cloud: azure` |
+| "GCP", "Google Cloud" | `cloud: gcp` |
+| "synthetic", "generate test data", "LLM simulator" | `eval_dataset_source: synthetic` |
+| "production traces", "from prod", "from logs" | `eval_dataset_source: production_traces` |
+| "existing dataset", "I already have eval data" | `eval_dataset_source: existing` |
+
+After inference, present a summary like:
+
+> Based on what you described, I'll configure:
+> - Vector Search (RAG): **yes**
+> - Lakebase memory: **no** ← _ask if unsure_
+> - UC functions: **no**
+> - Eval dataset: **synthetic**
+>
+> Does that look right, or would you like to change anything?
+
+Then only ask for inputs still missing.
 
 ### Phase 1: Infrastructure
+
+Collect any of these not already known:
 
 1. **project_name** (string) — Bundle name. Must match `^[a-z][a-z0-9_]{2,}$`.
 2. **initial_agent_name** (string) — Name of the first agent. Same pattern. Default: `default`.
@@ -41,19 +80,21 @@ Collect inputs **one at a time, in order**. Skip questions that don't apply.
 
 ### Phase 2: Data sources
 
-6. **use_vector_search** — "Does your agent need to search unstructured data (RAG)?" → `yes`/`no`
-   - If yes → 7. **has_chunked_table** — "Do you already have a chunked Delta table to sync from? If no, the scaffold includes ingestion and preparation notebooks." → `yes`/`no`
-7. **use_lakebase** — "Does your agent need memory (conversation history)?" → `yes`/`no`
-   - If yes → 9. **memory_type** — "What kind of memory?" → `short_term`, `long_term`, or `both`
+Confirm or ask only for inputs not inferred:
+
+6. **use_vector_search** — `yes`/`no`
+   - If yes → **has_chunked_table** — "Do you already have a chunked Delta table to sync from? If no, the scaffold includes ingestion and preparation notebooks." → `yes`/`no`
+7. **use_lakebase** — `yes`/`no`
+   - If yes and `memory_type` not inferred → **memory_type** — `short_term`, `long_term`, or `both`
 
 ### Phase 3: Tools
 
-8. **use_uc_functions** — "Will your agent call Unity Catalog functions as tools?" → `yes`/`no`
-   - If yes → 9. **uc_functions_exist** — "Are those UC functions already defined in your catalog?" → `yes`/`no`
+8. **use_uc_functions** — `yes`/`no`
+   - If yes and `uc_functions_exist` not inferred → **uc_functions_exist** — "Are those UC functions already defined in your catalog?" → `yes`/`no`
 
 ### Phase 4: Evaluation
 
-10. **eval_dataset_source** — "How would you like to create the evaluation dataset?"
+9. **eval_dataset_source** — only ask if not inferred from context:
     - `synthetic` — generate a golden dataset using an LLM simulator (default)
     - `manual` — scaffold a notebook with example rows to fill in manually
     - `production_traces` — build from production traces filtered by tag
