@@ -10,8 +10,9 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 
 | Skill | Trigger | What it does |
 |-------|---------|--------------|
-| **`agentops-stacks`** | `scaffold a new agentops project` | Scaffolds a new project (DAB layout, dev/staging/prod targets, UC schema and volume, MLflow experiment, CI/CD wiring). One-time use at project start. |
+| **`agentops-stacks`** | `scaffold a new agentops project` | Scaffolds a new multi-agent LangGraph project (per-agent Databricks Apps, shared components, UC schema and volume, MLflow experiments, CI/CD wiring). One-time use at project start. |
 | **`agentops-lifecycle`** | `walk me through the agentops lifecycle` | Guides an existing scaffold through the complete Single-Account Single-Agent lifecycle — data prep, agent dev, eval gate, SME calibration, CI/CD promotion, batch eval baseline, and production monitoring. 10 steps across dev → staging → prod. |
+| **`add-agent`** | `add agent`, `new agent`, `create another agent` | Adds a new agent to an existing project — copies an existing agent as a template and wires it into `databricks.yml` and the manifest. |
 
 ### Commands
 
@@ -19,6 +20,7 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 |---------|-------|
 | `/init-agentops-stacks` | `agentops-stacks` |
 | `/agentops-lifecycle` | `agentops-lifecycle` |
+| `/add-agent` | `add-agent` |
 
 ### Installers
 
@@ -60,7 +62,7 @@ After either install:
 
 1. Pre-create a **Git folder** in the workspace via Workspace → Add → Git folder, pointing at an empty target repo. The bundle must land inside a Git folder for the workspace UI's Deployments panel to appear on it post-scaffold — matching the layout produced by Workspace UI's own "Create → Bundle" flow.
 2. Open Genie Code from inside that Git folder and say "scaffold a new agentops-stacks project."
-3. The skill collects four inputs one at a time (project name, cloud, CI/CD platform, destination), writes a temp config file under `/tmp/`, and runs:
+3. The skill collects inputs across five phases (infrastructure, data sources, tools, evaluation, then confirm), writes a temp config file under `/tmp/`, and runs:
    ```
    databricks bundle init https://github.com/databricks-solutions/agentops-stacks \
      --config-file <tmp> --output-dir <destination>
@@ -95,14 +97,18 @@ plugin/
 ├── README.md                                    # this file
 ├── commands/
 │   ├── init-agentops-stacks.md                  # scaffold command
-│   └── agentops-lifecycle.md                    # lifecycle command
+│   ├── agentops-lifecycle.md                    # lifecycle command
+│   └── common-issues.md                         # troubleshooting reference
 └── skills/
     ├── install_skills.sh                        # local + Genie upload installer
     ├── install_genie_code_skills.py             # in-workspace notebook installer
     ├── agentops-stacks/
-    │   └── SKILL.md                             # scaffold skill
-    └── agentops-lifecycle/
-        └── SKILL.md                             # lifecycle skill (10-step dev→prod guide)
+    │   ├── SKILL.md                             # scaffold skill (5-phase input collection)
+    │   └── reference/                           # post-scaffold, Genie Code, common issues docs
+    ├── agentops-lifecycle/
+    │   └── SKILL.md                             # lifecycle skill (10-step dev→prod guide)
+    └── add-agent/
+        └── SKILL.md                             # add-agent skill (wires new agent into existing project)
 ```
 
 Each skill is a single `SKILL.md`. There's no Python renderer and no vendored

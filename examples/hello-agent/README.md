@@ -8,9 +8,11 @@ This project ships the structure, CI/CD wiring, and Unity Catalog configuration 
 
 1. Follow **[`docs/setup.md`](docs/setup.md)** — end-to-end configuration guide (UC catalogs and grants, CLI profiles, service principals, CI/CD credentials).
 2. Fill in the TODO placeholders in `databricks.yml` (workspace hosts, `run_as` identities).
-3. `uv sync` — generates `uv.lock`. **Commit `uv.lock` to git** (CI caches against it).
-4. `databricks bundle validate -t dev --profile <dev-profile>`
-5. `databricks bundle deploy -t dev --profile <dev-profile>`
+3. `cd src/agents/hello_agent` then `uv sync` — generates `uv.lock`. **Commit `uv.lock` to git** (CI caches against it).
+4. `cp .env.example .env` — configure Databricks auth for local runs.
+5. `uv run python app/start_server.py` — run the agent locally.
+6. `databricks bundle validate -t dev --profile <dev-profile>`
+7. `databricks bundle deploy -t dev --profile <dev-profile>`
 
 ## Project layout
 
@@ -18,8 +20,9 @@ This project ships the structure, CI/CD wiring, and Unity Catalog configuration 
 |------|---------|
 | `databricks.yml` | Bundle root: variables, targets, resource includes, deployment engine |
 | `resources/` | DAB resource definitions (`experiment.yml`, `schemas.yml`, `volumes.yml`) |
-| `.agentops-stacks/manifest.yml` | agentops-stacks recognition marker, contract version |
-| `src/` | Your AI solution code (apps, notebooks, MCP servers, etc.) |
+| `.agentops-stacks/manifest.yml` | agentops-stacks recognition marker, contract version, agent registry |
+| `src/agents/hello_agent/` | Agent code: `agent.py`, `graph.py`, `tools.py`, `app/`, `eval/` |
+| `src/components/` | Shared components (tool registry) |
 | `tests/` | Unit and integration tests |
 | `docs/` | Project documentation; `docs/setup.md` is the configuration guide |
 | `.github/`, `.gitlab/`, `.azure/` | CI/CD pipelines for the selected platform |
@@ -37,13 +40,13 @@ Each target has its own catalog. Dev mode prefixes resource names with user info
 
 ## Production patterns
 
-Evaluation, governance, and monitoring are not pre-installed — apply them as your solution develops:
+Evaluation gates are pre-scaffolded under `src/agents/<name>/eval/`. Governance and monitoring are applied as the project matures:
 
-- **Evaluation gates** — apply by adding `evaluation/thresholds.yml` and `evaluation/gate.py`; CI workflows auto-detect and gate promotion on them.
+- **Evaluation gates** — `eval/gates.yml` defines quality thresholds; `eval/evaluate_agent.py` runs the harness. CI workflows gate promotion on them. Run locally with `uv run agent-evaluate`.
 - **Governance posture** — apply by adding `governance/posture.md` and `governance/data_flows.md`; the prod-promotion workflow checks for presence.
 - **Monitoring** — apply per-resource as you deploy them (trace destination in code, alert rules per endpoint, etc.).
 
-An agentops-stacks plugin — portable across Claude Code, Cursor, and Genie Code — is in development; it will offer interactive commands to apply each pattern. Until then, follow the conventions documented in `AGENTS.md`.
+Use the agentops-stacks plugin (Claude Code, Cursor, or Genie Code) for step-by-step guidance. Run `/agentops-lifecycle` or say "walk me through the agentops lifecycle."
 
 ## Resources
 

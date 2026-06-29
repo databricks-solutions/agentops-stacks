@@ -16,9 +16,9 @@ description: >
 
 This skill guides a project scaffolded with agentops-stacks through its complete
 production lifecycle: 10 steps across three phases (dev → staging → prod).
-MLflow is the operational spine at every level. The `evaluation/gate.py` pattern
-from the scaffold blocks every promotion — it runs locally in dev, in CI on every
-PR, and against real production data before users are admitted.
+MLflow is the operational spine at every level. The eval gate in
+`src/agents/<name>/eval/` blocks every promotion — it runs locally in dev, in CI
+on every PR, and against real production data before users are admitted.
 
 **Before using this skill:** run `databricks bundle init` (via the
 `agentops-stacks` skill or directly) and confirm `.agentops-stacks/manifest.yml`
@@ -35,7 +35,7 @@ Git provider
 ┌─────────────────┐   ┌──────────────────────┐   ┌────────────────────────────┐
 │ DEV WORKSPACE   │   │ STAGING WORKSPACE    │   │ PRODUCTION WORKSPACE       │
 │                 │   │                      │   │                            │
-│ Data Prep       │   │ Unit Tests (CI)      │   │ App + Model Serving        │
+│ Data Prep       │   │ Unit Tests (CI)      │   │ Databricks App             │
 │  └─ Ingest      │   │ Bundle Validate      │   │ Batch Inferencing Job      │
 │  └─ Embed       │   │ Eval Gate (CI)       │   │ Automated Eval             │
 │  └─ VS Index    │   │ Integration Tests    │   │ SME HITL sampling          │
@@ -76,8 +76,13 @@ to Step 2.
 cat > /tmp/agentops-stacks-inputs.json <<'EOF'
 {
   "input_project_name": "my_agent",
+  "input_initial_agent_name": "my_agent",
   "input_cloud": "aws",
-  "input_cicd_platform": "github_actions"
+  "input_cicd_platform": "github_actions",
+  "input_use_vector_search": "no",
+  "input_use_lakebase": "no",
+  "input_use_uc_functions": "no",
+  "input_eval_dataset_source": "synthetic"
 }
 EOF
 
@@ -85,8 +90,8 @@ databricks bundle init https://github.com/databricks-solutions/agentops-stacks \
   --config-file /tmp/agentops-stacks-inputs.json \
   --output-dir .
 
-cd my_agent
-uv sync
+cd my_agent/src/agents/my_agent
+uv sync                          # generates uv.lock — commit it
 databricks bundle validate -t dev
 ```
 
@@ -95,7 +100,7 @@ databricks bundle validate -t dev
 - `.agentops-stacks/manifest.yml` exists containing `contract_version`,
   `project_name`, `cicd_platform`, `cloud`.
 - `databricks bundle validate -t dev` exits 0.
-- `uv.lock` is present (commit it).
+- `uv.lock` is present at `src/agents/my_agent/uv.lock` (commit it).
 
 ---
 
@@ -192,205 +197,198 @@ w.vector_search_indexes.create(
 
 ## Step 3 — Agent Development & Dev Deployment
 
-Implement the agent with `@mlflow.trace` on every decision point. MLflow tracing
-is **mandatory from the first deploy** — traces are required for eval gate
-feedback, SME review, and production monitoring. An agent with no traces cannot
-be evaluated.
+Implement the agent as a LangGraph graph served via MLflow AgentServer. The scaffold
+generates `src/agents/<name>/` with the full structure — edit it to add your logic.
+`mlflow.langchain.autolog()` in `agent.py` captures traces automatically from the first
+request; no manual `@mlflow.trace` decorators needed.
 
-### Agent class pattern
+### Agent file layout
 
-```python
-# src/my_agent.py
-import mlflow
-from mlflow.pyfunc import PythonModel
-from databricks.sdk import WorkspaceClient
-import pandas as pd
-
-
-class MyAgent(PythonModel):
-    """Production agent with full MLflow tracing and guardrails."""
-
-    def __init__(self):
-        self._vs_client = None
-
-    @property
-    def vs_client(self):
-        if self._vs_client is None:
-            self._vs_client = WorkspaceClient()
-        return self._vs_client
-
-    @mlflow.trace(name="predict", span_type="CHAIN")
-    def predict(self, context, model_input: pd.DataFrame) -> list[dict]:
-        rows = model_input.to_dict(orient="records")
-        return [self._handle(row) for row in rows]
-
-    @mlflow.trace(span_type="CHAIN")
-    def _handle(self, row: dict) -> dict:
-        query = self._validate_input(row.get("query", ""))
-        context_docs = self._retrieve(query)
-        response = self._generate(query, context_docs)
-        return {"response": response, "sources": [d["path"] for d in context_docs]}
-
-    @mlflow.trace(span_type="GUARDRAIL")
-    def _validate_input(self, query: str) -> str:
-        # PII scrub, injection detection, length limits
-        if not query or len(query) > 2000:
-            raise ValueError("Query must be 1–2000 characters")
-        return query.strip()
-
-    @mlflow.trace(span_type="RETRIEVER")
-    def _retrieve(self, query: str) -> list[dict]:
-        import os
-        catalog = os.environ["DATABRICKS_CATALOG"]
-        schema = os.environ.get("DATABRICKS_SCHEMA", "my_agent")
-        result = self.vs_client.vector_search_indexes.query_index(
-            index_name=f"{catalog}.{schema}.docs_index",
-            columns=["path", "chunk_text"],
-            query_text=query,
-            num_results=5,
-        )
-        return [
-            {"path": r.get("path", ""), "text": r.get("chunk_text", "")}
-            for r in (result.result.data_array or [])
-        ]
-
-    @mlflow.trace(span_type="LLM")
-    def _generate(self, query: str, docs: list[dict]) -> str:
-        context = "\n\n".join(d["text"] for d in docs)
-        # Replace with your actual LLM call (e.g., MLflow AI Gateway, SDK)
-        from mlflow.deployments import get_deploy_client
-        client = get_deploy_client("databricks")
-        response = client.predict(
-            endpoint="databricks-meta-llama-3-1-70b-instruct",
-            inputs={
-                "messages": [
-                    {"role": "system", "content": f"Answer using this context:\n{context}"},
-                    {"role": "user", "content": query},
-                ]
-            },
-        )
-        return response["choices"][0]["message"]["content"]
+```
+src/agents/my_agent/
+├── agent.py       # @invoke/@stream handlers (MLflow AgentServer entry points)
+├── graph.py       # LangGraph StateGraph assembly — add nodes and edges here
+├── tools.py       # Tool selection — controls what the agent can do
+├── app/
+│   └── start_server.py  # Local dev server (FastAPI via AgentServer)
+└── eval/
+    ├── create_dataset.py   # Databricks notebook: build UC eval table
+    ├── evaluate_agent.py   # Databricks notebook: run eval gate
+    ├── gates.yml           # Gate thresholds (block/warn/info tiers)
+    └── utils.py            # Pure-Python gate logic (unit-testable)
 ```
 
-### Register to Unity Catalog
+### Edit the graph
 
-Run `notebooks/register_agent.py` (generated by the scaffold). Set the
-`catalog` and `schema` widgets before running:
+`graph.py` assembles the LangGraph StateGraph. The scaffold generates a working
+baseline — add nodes and edges for your use case:
 
 ```python
-# In the notebook (already generated by scaffold):
-# catalog = "my_agent_dev"
-# schema = "my_agent"
-# model_name = f"{catalog}.{schema}.my_agent"
+# src/agents/my_agent/graph.py  (generated — edit to add your logic)
+import os
+from langgraph.graph import START, END, StateGraph, MessagesState
+from langgraph.prebuilt import ToolNode
+from databricks_langchain import ChatDatabricks
+from tools import get_tools
+
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
+
+def agent_node(state: MessagesState) -> dict:
+    tools = get_tools()
+    llm = ChatDatabricks(endpoint=LLM_ENDPOINT)
+    if tools:
+        llm = llm.bind_tools(tools)
+    return {"messages": [llm.invoke(state["messages"])]}
+
+def should_continue(state: MessagesState) -> str:
+    last = state["messages"][-1]
+    return "tool_node" if (hasattr(last, "tool_calls") and last.tool_calls) else END
+
+def build_graph():
+    tools = get_tools()
+    builder = StateGraph(MessagesState)
+    builder.add_node("agent", agent_node)
+    if tools:
+        builder.add_node("tool_node", ToolNode(tools))
+    builder.add_edge(START, "agent")
+    if tools:
+        builder.add_conditional_edges("agent", should_continue)
+        builder.add_edge("tool_node", "agent")
+    else:
+        builder.add_edge("agent", END)
+    return builder
+
+graph_builder = build_graph()
+graph = graph_builder.compile()
 ```
 
-After running, verify:
+### Run locally
 
 ```bash
-# Check @champion alias is set
-databricks models get-alias my_agent_dev.my_agent.my_agent champion
+cd src/agents/my_agent
+uv sync                                # install deps + generate uv.lock
+cp .env.example .env                   # fill in DATABRICKS_HOST, TOKEN, CATALOG, SCHEMA
+uv run python app/start_server.py      # starts FastAPI on http://localhost:8000
+
+# Send a test message
+curl -X POST http://localhost:8000/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "hello"}]}'
 ```
 
-### Deploy dev bundle
+### Deploy to dev
 
 ```bash
 databricks bundle deploy -t dev
-uv run pytest  # exit 0 or exit 5 (no tests) both acceptable at this stage
 ```
+
+The bundle deploys a Databricks App for each agent declared in `databricks.yml`.
+Each App serves the agent via MLflow AgentServer — no separate Model Serving
+endpoint or UC model registration required.
 
 ### Done when
 
-- Model exists in Unity Catalog with `@champion` alias: `models:/my_agent_dev.my_agent.my_agent@champion`.
-- At least one MLflow trace is present in the dev experiment for a sample prediction.
+- `uv run python app/start_server.py` starts without errors locally and returns a response.
 - `databricks bundle deploy -t dev` exits 0.
-- If a Databricks App is declared in `databricks.yml`, the App URL is reachable in the dev workspace.
+- The Databricks App is reachable in the dev workspace (URL from `databricks apps get <app-name>`).
+- At least one MLflow trace appears in the dev experiment after a test request.
 
 ---
 
 ## Step 4 — Offline Evaluation & Eval Gate Setup
 
-Build the evaluation framework **before** any code leaves dev. The `evaluation/`
-directory is generated by the scaffold. Populate it and verify the gate passes
-locally — it will run in CI on every PR.
+Build the evaluation framework **before** any code leaves dev. The scaffold
+pre-generates `src/agents/<name>/eval/` with a three-file eval harness. Populate
+the eval dataset and verify the gate passes locally — CI will run it on every PR.
 
-### Golden dataset
+### Build the eval dataset
 
-`evaluation/golden_dataset.jsonl` — one JSON object per line:
+Run `src/agents/my_agent/eval/create_dataset.py` as a Databricks notebook.
+It saves the eval set to `<catalog>.<schema>.my_agent_eval_dataset` in Unity Catalog.
 
-```jsonl
-{"query": "What is the return policy?", "expected_response": "Items can be returned within 30 days with receipt.", "context": "Optional: known good context chunk"}
-{"query": "How do I reset my password?", "expected_response": "Visit account settings and click 'Forgot password'.", "context": ""}
+Three dataset modes are available (chosen at scaffold time via `input_eval_dataset_source`):
+- **`synthetic`** — uses `databricks.agents.evals.generate_evals_df` to synthesize
+  questions from your source documents. Edit the `docs` DataFrame to point at real content.
+- **`manual`** — fill in the `eval_examples` list with domain-specific Q&A pairs.
+- **`production_traces`** — filters production MLflow traces tagged `eval_candidate=true`.
+
+After running the notebook, verify:
+```bash
+databricks sql statement-execute \
+  --statement "SELECT COUNT(*) FROM my_agent_dev.my_agent.my_agent_eval_dataset"
 ```
 
-**Minimum:** 20 labeled examples. Target: 50–100. More examples = more stable
-eval scores. SME or domain expert should label the `expected_response` values.
+**Minimum:** 20 examples. Target: 50–100.
 
-### Thresholds
+### Gate thresholds
 
-`evaluation/thresholds.yml` (generated by scaffold — adjust thresholds after
-first baseline run):
+`src/agents/my_agent/eval/gates.yml` (generated by scaffold — adjust after first
+baseline run):
 
 ```yaml
-model:
-  uri: "models:/{catalog}.{schema}.my_agent@champion"
+block:        # hard failures — block promotion if these regress
+  - safety:
+      floor: 4.0    # must score ≥ 4.0 out of 5
 
-dataset:
-  path: "evaluation/golden_dataset.jsonl"
+warn:         # soft failures — log and flag, do not block
+  - relevance:
+      tolerance: 0.05   # challenger may regress at most 5% vs champion
 
-scorers:
-  - name: Safety
-    severity: blocking    # hard failure: gate blocks CI
-    threshold: 1.0        # all responses must be Safe
-  - name: Correctness
-    severity: warning     # soft failure: gate warns but does not block
-    threshold: 0.8        # >= 80% match expected_response
+info:         # always logged, never blocks
+  - fluency
 ```
 
 ### Run the gate locally
 
 ```bash
-export DATABRICKS_CATALOG=my_agent_dev
-export DATABRICKS_SCHEMA=my_agent
-uv run python evaluation/gate.py
+cd src/agents/my_agent
+export CATALOG=my_agent_dev
+export SCHEMA=my_agent
+uv run python eval/evaluate_agent.py
 ```
 
 Expected output on pass:
 ```
-Loading model: models:/my_agent_dev.my_agent.my_agent@champion
-Evaluating against 50 examples with 2 scorer(s)
-PASS — Safety: 1.000 (threshold 1.000, blocking)
-PASS — Correctness: 0.863 (threshold 0.800, warning)
-Eval gate: all blocking thresholds met.
+Gates config is valid.
+Scorers to run: ['Safety', 'RelevanceToQuery', 'Fluency']
+Loaded 50 examples from my_agent_dev.my_agent.my_agent_eval_dataset
+Run ID: abc123...
+============================================================
+EVALUATION GATE RESULTS
+============================================================
+  PASS  safety: 4.600 (first run, no champion)
+  PASS  relevance: 4.100 (first run, no champion)
+  INFO  fluency: 4.500 (first run, no champion)
+============================================================
+Result: PASSED
+All gates passed. Agent is ready for promotion.
 ```
 
-If Safety < 1.0, review flagged traces in MLflow, add output guardrails to the
-agent's `_validate_input` or response post-processing, then re-evaluate. **Do
-not lower the Safety threshold to pass.**
+If safety scores below the floor, review flagged traces in MLflow, add input/output
+guardrails in `graph.py`, then re-run. **Do not lower the safety floor to pass.**
 
 ### Custom scorer (optional)
 
+Register domain-specific scorers in `src/components/eval/scorers.py` (generated):
+
 ```python
-# In evaluation/gate.py — extend SCORER_REGISTRY with domain-specific criteria
-from mlflow.genai import make_judge
+# src/components/eval/scorers.py — add custom scorers here, then reference by name in gates.yml
+import mlflow
 
-domain_scorer = make_judge(
-    name="AnswerGrounded",
-    judge_prompt=(
-        "Is the answer grounded in the provided context? "
-        "Score 1 if fully grounded, 0 if hallucinated."
-    ),
-    score_type="int",
-)
-
-SCORER_REGISTRY["AnswerGrounded"] = lambda: domain_scorer
+@mlflow.trace
+def domain_accuracy(inputs, outputs, expectations):
+    """Score whether the answer matches domain expectations."""
+    # Return a float score compatible with mlflow.genai.evaluate
+    ...
 ```
+
+Reference the scorer name in `gates.yml` under `block`, `warn`, or `info`.
 
 ### Done when
 
-- `evaluation/golden_dataset.jsonl` has ≥20 labeled examples.
-- `uv run python evaluation/gate.py` exits 0 — all blocking thresholds met.
-- MLflow experiment has at least one eval run with `safety/mean` and
-  `correctness/mean` metrics.
+- Eval table `my_agent_dev.my_agent.my_agent_eval_dataset` has ≥20 examples.
+- `uv run python eval/evaluate_agent.py` exits 0 — all block thresholds met.
+- MLflow experiment `/Shared/my_agent_my_agent_eval` has at least one eval run.
 
 ---
 
@@ -422,23 +420,24 @@ for run in runs:
                                        filter_string=f"run_id = '{run.info.run_id}'",
                                        max_results=1):
         spans = trace.data.spans
-        predict_span = next((s for s in spans if s.name == "predict"), None)
-        if predict_span:
+        # With LangChain autolog the root span is typically "ChatDatabricks" or "agent_node"
+        root_span = spans[0] if spans else None
+        if root_span:
             traces.append({
                 "trace_id": trace.info.request_id,
-                "query": predict_span.inputs.get("query", ""),
-                "response": predict_span.outputs.get("response", ""),
+                "input": str(root_span.inputs),
+                "output": str(root_span.outputs),
             })
 
 df = pd.DataFrame(traces)
-df.to_csv("evaluation/traces_for_sme_review.csv", index=False)
-print(f"Exported {len(df)} traces to evaluation/traces_for_sme_review.csv")
+df.to_csv("docs/sme_traces_for_review.csv", index=False)
+print(f"Exported {len(df)} traces to docs/sme_traces_for_review.csv")
 ```
 
 Share the CSV (or a Databricks App backed by the MLflow Trace UI) with the
 domain SME. Add score columns for them to fill:
 
-| trace_id | query | response | sme_accuracy_1_5 | sme_tone_1_5 | sme_complete_1_5 | sme_safe_pass_fail |
+| trace_id | input | output | sme_accuracy_1_5 | sme_tone_1_5 | sme_complete_1_5 | sme_safe_pass_fail |
 |---|---|---|---|---|---|---|
 
 ### Calibration run
@@ -448,14 +447,14 @@ After SME scoring is returned, compare against judge scores:
 ```python
 # Run evaluation on the same traces using the LLM judge
 result = mlflow.genai.evaluate(
-    data=pd.read_csv("evaluation/traces_for_sme_review.csv"),
+    data=pd.read_csv("docs/sme_traces_for_review.csv"),
     predict_fn=lambda q: ...,  # re-invoke agent on the same queries
     scorers=[mlflow.genai.scorers.Correctness(), mlflow.genai.scorers.Safety()],
 )
 
 # Compare judge scores to SME scores — compute agreement rate
 import numpy as np
-sme_df = pd.read_csv("evaluation/traces_for_sme_review.csv")
+sme_df = pd.read_csv("docs/sme_traces_for_review.csv")
 judge_scores = result.tables["eval_results"]
 
 # Agreement: abs(judge_correctness - sme_accuracy/5) < 0.2
@@ -470,7 +469,7 @@ disagreement examples as few-shots via `mlflow.genai.align()`.
 
 ### Sign-off document
 
-Create `evaluation/sme_calibration.md`:
+Create `docs/sme_calibration.md`:
 
 ```markdown
 # SME Calibration Sign-Off
@@ -485,7 +484,7 @@ Create `evaluation/sme_calibration.md`:
 
 ### Done when
 
-- `evaluation/sme_calibration.md` exists with reviewer name, date, agreement %, and explicit sign-off.
+- `docs/sme_calibration.md` exists with reviewer name, date, agreement %, and explicit sign-off.
 - Agreement rate ≥80% (documented).
 
 ---
@@ -505,7 +504,7 @@ git push -u origin feature/my_agent_initial
 
 gh pr create \
   --title "[my_agent] Initial implementation + eval gate" \
-  --body "Adds agent code, golden dataset (50 examples), eval gate (Safety 1.0, Correctness 0.82), and SME calibration sign-off."
+  --body "Adds agent code, eval dataset (50 examples in UC), eval gate (safety floor 4.0), and SME calibration sign-off."
 ```
 
 ### What CI runs
@@ -517,21 +516,21 @@ scaffold) runs three jobs:
 # Generated by scaffold — do not modify the gate-triggering logic
 jobs:
   unit_tests:
-    # uv run pytest
+    # uv sync (from src/agents/my_agent/) + uv run pytest ../../../tests/
   validate_bundle:
     # databricks bundle validate -t staging
+  detect_patterns:
+    # find src/agents -name "gates.yml" -path "*/eval/gates.yml"
   eval_gate:
-    # if: hashFiles('evaluation/thresholds.yml') != ''
-    # uv run python evaluation/gate.py
-    # env:
-    #   DATABRICKS_CATALOG: ${{ vars.STAGING_CATALOG }}
-    #   DATABRICKS_SCHEMA: ${{ vars.STAGING_SCHEMA }}
+    # if: detect_patterns outputs has_eval == 'true'
+    # for each src/agents/*/eval/gates.yml:
+    #   cd <agent_dir> && uv sync && uv run python eval/evaluate_agent.py
+    # uses DATABRICKS_TOKEN: ${{ secrets.STAGING_WORKSPACE_TOKEN }}
 ```
 
 CI secrets required (set in GitHub repo settings before opening the PR):
-- `DATABRICKS_STAGING_HOST` — staging workspace URL
-- `DATABRICKS_STAGING_TOKEN` or OIDC wiring for the service principal
-- `STAGING_CATALOG` variable — e.g., `my_agent_staging`
+- `STAGING_WORKSPACE_TOKEN` — staging workspace token (or OIDC service principal)
+- `DATABRICKS_HOST` — staging workspace URL (set in `databricks.yml` targets.staging)
 
 ### Address failures
 
@@ -565,60 +564,84 @@ databricks bundle deploy -t staging
 ### Integration tests
 
 `tests/` contains unit tests generated by the scaffold. Add integration tests
-that call real staging endpoints:
+that call the staging Databricks App:
 
 ```python
 # tests/test_agent_integration.py
 import os
-import mlflow
-import pandas as pd
+import httpx
 import pytest
+import mlflow
+
+STAGING_APP_URL = os.environ.get("STAGING_APP_URL", "")
+DATABRICKS_TOKEN = os.environ.get("DATABRICKS_TOKEN", "")
 
 @pytest.fixture(scope="session")
-def staging_model():
-    catalog = os.environ["DATABRICKS_CATALOG"]  # my_agent_staging
-    schema = os.environ.get("DATABRICKS_SCHEMA", "my_agent")
-    return mlflow.pyfunc.load_model(f"models:/{catalog}.{schema}.my_agent@champion")
+def agent_url():
+    if not STAGING_APP_URL:
+        pytest.skip("STAGING_APP_URL not set — get it from: databricks apps get <app-name>")
+    return STAGING_APP_URL
 
-def test_agent_returns_response(staging_model):
-    result = staging_model.predict(pd.DataFrame([{"query": "What is the return policy?"}]))
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert "response" in result[0]
-    assert len(result[0]["response"]) > 0
-
-def test_agent_handles_empty_query(staging_model):
-    """Agent should raise or return a structured error, not crash."""
-    with pytest.raises(Exception):
-        staging_model.predict(pd.DataFrame([{"query": ""}]))
-
-def test_mlflow_traces_logged(staging_model):
-    """Each prediction must produce an MLflow trace."""
-    import mlflow
-    client = mlflow.tracking.MlflowClient()
-    experiment = client.get_experiment_by_name(
-        f"/Shared/my_agent/staging"
+def test_agent_returns_response(agent_url):
+    resp = httpx.post(
+        f"{agent_url}/invocations",
+        headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
+        json={"messages": [{"role": "user", "content": "What is Databricks?"}]},
+        timeout=30.0,
     )
+    assert resp.status_code == 200
+    body = resp.json()
+    # AgentServer response has "output" list; chat proxy response has "choices"
+    assert body.get("output") or body.get("choices")
+
+def test_agent_handles_empty_messages(agent_url):
+    """Agent should return 4xx or a structured error, not 500."""
+    resp = httpx.post(
+        f"{agent_url}/invocations",
+        headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
+        json={"messages": []},
+        timeout=30.0,
+    )
+    assert resp.status_code != 500
+
+def test_mlflow_traces_logged(agent_url):
+    """Each invocation must produce an MLflow trace."""
+    client = mlflow.tracking.MlflowClient()
+    experiment = client.get_experiment_by_name("/Shared/my_agent_my_agent_eval")
     before_count = len(client.search_traces(
         experiment_ids=[experiment.experiment_id], max_results=1000
-    ))
-    staging_model.predict(pd.DataFrame([{"query": "trace check"}]))
-    after_count = len(client.search_traces(
-        experiment_ids=[experiment.experiment_id], max_results=1000
-    ))
-    assert after_count > before_count, "Prediction did not log an MLflow trace"
+    )) if experiment else 0
+    httpx.post(
+        f"{agent_url}/invocations",
+        headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
+        json={"messages": [{"role": "user", "content": "trace check"}]},
+        timeout=30.0,
+    )
+    if experiment:
+        after_count = len(client.search_traces(
+            experiment_ids=[experiment.experiment_id], max_results=1000
+        ))
+        assert after_count > before_count, "Invocation did not log an MLflow trace"
+```
+
+Get the staging App URL after deploy:
+
+```bash
+databricks apps get <app-name> --profile <staging-profile>
+# Returns the App URL — set as STAGING_APP_URL for the integration test run
 ```
 
 Run locally against staging:
 
 ```bash
-export DATABRICKS_CATALOG=my_agent_staging
-uv run pytest tests/test_agent_integration.py -v
+export STAGING_APP_URL=https://<staging-app-url>
+export DATABRICKS_TOKEN=<staging-token>
+cd src/agents/my_agent && uv run pytest ../../../tests/test_agent_integration.py -v
 ```
 
 ### Done when
 
-- Databricks App and Model Serving endpoint are live in staging workspace.
+- Databricks App is live and reachable in staging workspace.
 - Staging MLflow experiment has at least one trace from the integration test run.
 - All integration tests pass.
 - All validation tests pass (edge cases, schema validation, timeout behaviors).
@@ -648,28 +671,26 @@ Or: merge `main` → `release` branch if your CD is branch-triggered.
 # Monitor CD via GitHub Actions or run manually
 databricks bundle deploy -t prod
 
+# Get the prod App URL
+databricks apps get <app-name> --profile <prod-profile>
+
 # Smoke test — confirm agent responds
-databricks serving-endpoints query my_agent_prod \
-  --request '{"dataframe_records": [{"query": "smoke test query"}]}'
+APP_URL="https://<prod-app-url>"
+curl -X POST "$APP_URL/invocations" \
+  -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "smoke test"}]}'
 ```
 
-The endpoint is healthy when it returns HTTP 200 on `/health`. The smoke test
-passes when it returns a non-empty `response` field.
-
-### Register production model
-
-```bash
-# Run notebooks/register_agent.py with prod catalog/schema widgets
-# Then verify @champion alias in prod UC
-databricks models get-alias my_agent_prod.my_agent.my_agent champion
-```
+The App is healthy when `/health` returns HTTP 200 and the smoke test returns
+a non-empty `output` (or `choices`) field.
 
 ### Done when
 
 - CD workflow exits 0 and prod bundle is deployed.
-- Model Serving endpoint returns HTTP 200 on `/health`.
-- Smoke test: agent returns non-error, non-empty response.
-- Prod UC schema has model with `@champion` alias.
+- Databricks App is reachable at the prod workspace App URL.
+- Smoke test: agent returns HTTP 200 with a non-empty response.
+- MLflow traces appear in the prod experiment after the smoke test request.
 
 ---
 
@@ -682,7 +703,8 @@ check.
 
 ### Batch inferencing job
 
-Add a Databricks Job to `resources/` for batch inference:
+Add a Databricks Job to `resources/` for batch inference. The job calls the
+agent's App endpoint for each row in the input table:
 
 ```yaml
 # resources/batch_inference_job.yml
@@ -695,9 +717,9 @@ resources:
           notebook_task:
             notebook_path: notebooks/batch_inference.py
             base_parameters:
+              app_name: "${bundle.name}_my_agent"
               input_table: "${var.catalog}.${var.schema}.batch_eval_inputs"
               output_table: "${var.catalog}.${var.schema}.batch_eval_outputs"
-              model_uri: "models:/${var.catalog}.${var.schema}.${bundle.name}@champion"
 ```
 
 ```python
@@ -705,52 +727,64 @@ resources:
 # Databricks notebook source
 
 # COMMAND ----------
-import mlflow
+import httpx
 import pandas as pd
-from pyspark.sql import functions as F
+from databricks.sdk import WorkspaceClient
 
+dbutils.widgets.text("app_name", "")
 dbutils.widgets.text("input_table", "")
 dbutils.widgets.text("output_table", "")
-dbutils.widgets.text("model_uri", "")
 
+app_name = dbutils.widgets.get("app_name")
 input_table = dbutils.widgets.get("input_table")
 output_table = dbutils.widgets.get("output_table")
-model_uri = dbutils.widgets.get("model_uri")
 
 # COMMAND ----------
-# Load model once and broadcast across partitions
-model = mlflow.pyfunc.load_model(model_uri)
+w = WorkspaceClient()
+app = w.apps.get(app_name)
+app_url = f"https://{app.url}"
+token = w.config.token
 
 input_df = spark.table(input_table).toPandas()
-results = model.predict(input_df[["query"]])
 
-output_df = pd.DataFrame(results)
-output_df["query"] = input_df["query"].values
+results = []
+for _, row in input_df.iterrows():
+    resp = httpx.post(
+        f"{app_url}/invocations",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"messages": [{"role": "user", "content": row["query"]}]},
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    results.append(resp.json())
 
+output_df = pd.DataFrame({"query": input_df["query"], "response": results})
 spark.createDataFrame(output_df).write.mode("overwrite").saveAsTable(output_table)
 print(f"Batch inference complete: {len(output_df)} rows written to {output_table}")
 ```
 
 ### Run eval gate on batch output
 
+Tag batch output traces as eval candidates, then rebuild the prod eval dataset
+in Unity Catalog and re-run the eval gate:
+
 ```bash
-# Point the gate at batch results instead of golden dataset
-export DATABRICKS_CATALOG=my_agent_prod
-export DATABRICKS_SCHEMA=my_agent
-# Override dataset path via environment or edit thresholds.yml temporarily
-uv run python evaluation/gate.py
+cd src/agents/my_agent
+export CATALOG=my_agent_prod
+export SCHEMA=my_agent
+uv run python eval/evaluate_agent.py
 ```
 
 ### Log baseline metrics
 
-Create `evaluation/production_baseline.md`:
+Create `docs/production_baseline.md`:
 
 ```markdown
 # Production Eval Baseline
 
 - **Date:** 2025-06-15
 - **Dataset:** my_agent_prod.my_agent.batch_eval_inputs (500 rows)
-- **Model:** models:/my_agent_prod.my_agent.my_agent@champion (v1)
+- **Agent:** my_agent_prod_my_agent (Databricks App, v1)
 
 | Metric | Value |
 |---|---|
@@ -765,8 +799,8 @@ Staging baseline for comparison: Correctness 0.82. Production +0.02 — within b
 ### Done when
 
 - Batch inferencing job completes without errors.
-- Eval gate passes on production batch results — all blocking thresholds met.
-- `evaluation/production_baseline.md` has P95 latency, Safety/mean, Correctness/mean, cost/request.
+- Eval gate passes on production batch results — all block thresholds met.
+- `docs/production_baseline.md` has P95 latency, Safety/mean, Correctness/mean, cost/request.
 
 ---
 
@@ -776,50 +810,41 @@ Wire the complete production observability stack. This step closes the
 continuous improvement loop: production traces feed back into the eval dataset,
 driving future iterations.
 
-### Verify MLflow autolog on the endpoint
+### Verify MLflow tracing on the App
 
-The Model Serving endpoint should have `MLFLOW_TRACKING_URI` wired to the prod
-MLflow server. Verify by checking the endpoint environment in `databricks.yml`:
+The agent enables `mlflow.langchain.autolog()` in `agent.py` on startup. Traces
+are sent to the MLflow tracking server configured in the App environment
+(`DATABRICKS_HOST` and token from the Databricks App runtime). Verify:
 
-```yaml
-# In resources/model_serving.yml (or wherever the serving endpoint is declared)
-resources:
-  model_serving_endpoints:
-    my_agent_endpoint:
-      name: "${bundle.name}_endpoint"
-      config:
-        served_models:
-          - model_name: "${var.catalog}.${var.schema}.${bundle.name}"
-            model_version: "1"
-            workload_size: Small
-            scale_to_zero_enabled: true
-        auto_capture_config:
-          catalog_name: "${var.catalog}"
-          schema_name: "${var.schema}"
-          table_name_prefix: "inference_table"
-          enabled: true        # enables inference table for offline eval
+```bash
+# Check that traces appear in the prod MLflow experiment after a live request
+databricks experiments list --max-results 10
+# Find /Shared/my_agent_my_agent_eval and confirm recent runs exist
 ```
 
-`mlflow.autolog()` is active by default when the endpoint is serving an MLflow
-model. Confirm traces appear within 5 minutes of a live request.
+No additional configuration is required — the App runtime provides workspace
+credentials automatically, and LangChain autolog captures every graph invocation.
 
 ### Wire user feedback
 
-```python
-# In your Databricks App backend (app.py)
-import mlflow
-from flask import request, jsonify
+Add a `/feedback` endpoint to the agent's FastAPI app (alongside AgentServer routes):
 
-@app.route("/feedback", methods=["POST"])
-def collect_feedback():
-    body = request.json
+```python
+# In src/agents/my_agent/app/start_server.py — add after agent_server is constructed
+import mlflow
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@agent_server.app.post("/feedback")
+async def collect_feedback(req: Request):
+    body = await req.json()
     mlflow.log_feedback(
         trace_id=body["trace_id"],
         name="user_satisfaction",
-        value=1.0 if body["thumbs_up"] else 0.0,
+        value=1.0 if body.get("thumbs_up") else 0.0,
         rationale=body.get("comment", ""),
     )
-    return jsonify({"status": "ok"})
+    return JSONResponse({"status": "ok"})
 ```
 
 Test manually:
@@ -878,7 +903,7 @@ Create `docs/monitoring-runbook.md` documenting:
 - What each alert means
 - Who owns it (PagerDuty rotation, Slack channel)
 - Response playbook (example: "Safety < 0.99 → immediately disable serving → root-cause trace review → fix + re-eval before re-enabling")
-- How to add new production traces to the golden dataset for the next iteration
+- How to tag production traces as `eval_candidate=true` to grow the eval dataset
 
 ### Done when
 
@@ -906,14 +931,14 @@ If a step fails after 3 retries:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `uv run python evaluation/gate.py` exits non-zero with "DATABRICKS_CATALOG not set" | Env vars not exported | `export DATABRICKS_CATALOG=my_agent_dev && export DATABRICKS_SCHEMA=my_agent` |
-| `Failed to load model from models:/...@champion` | register_agent.py not yet run, or run with wrong catalog | Run `notebooks/register_agent.py` with correct catalog/schema widgets |
-| MLflow traces not appearing after prediction | Endpoint MLFLOW_TRACKING_URI misconfigured | Check endpoint environment vars in the DAB resources config; redeploy |
-| CI eval gate fails after local gate passes | Different DATABRICKS_CATALOG in CI vs. local | Ensure CI vars `STAGING_CATALOG` and `STAGING_SCHEMA` match what the model is registered under |
-| Safety score 0.0 on all responses | Output schema mismatch — safety scorer expects a `response` string field | Verify agent returns `[{"response": "..."}]` — check `hello_agent.py` for reference |
+| `uv run python eval/evaluate_agent.py` exits non-zero with "CATALOG not set" | Env vars not exported | `export CATALOG=my_agent_dev && export SCHEMA=my_agent` |
+| `Could not load eval table` in evaluate_agent.py | Eval dataset not yet created | Run `eval/create_dataset.py` as a Databricks notebook first |
+| MLflow traces not appearing after App request | `mlflow.langchain.autolog()` disabled or DATABRICKS_HOST not set in App env | Confirm `mlflow.langchain.autolog()` is called in `agent.py`; check App env vars in `databricks.yml` |
+| CI eval gate fails after local gate passes | Different `CATALOG`/`SCHEMA` in CI vs. local | Ensure `DATABRICKS_TOKEN` and workspace host in CI point to the staging workspace where the eval table exists |
+| App returns HTTP 502 or connection refused | App not yet started or failed to deploy | Check App logs: `databricks apps logs <app-name>`; verify `app.yaml` entry point matches `start_server.py` |
+| `uv sync` fails in CI | No `uv.lock` committed | Run `uv sync` locally from `src/agents/<name>/`, commit `uv.lock` |
 | VS index query returns no results | Index not synced after data write | Trigger a manual sync: `w.vector_search_indexes.sync_index("my_agent_dev.my_agent.docs_index")` |
-| `databricks bundle deploy -t staging` fails with auth error | Service principal not configured in CI secrets | Set `DATABRICKS_STAGING_HOST` and `DATABRICKS_STAGING_TOKEN` secrets in GitHub repo settings |
-| Production traces not in MLflow experiment | `auto_capture_config` not set on serving endpoint | Add `auto_capture_config` block to the endpoint resource in `databricks.yml`, redeploy |
+| `databricks bundle deploy -t staging` fails with auth error | Service principal not configured in CI secrets | Set `STAGING_WORKSPACE_TOKEN` secret in GitHub repo settings |
 
 ---
 
@@ -921,12 +946,12 @@ If a step fails after 3 retries:
 
 | File | Role |
 |---|---|
-| `evaluation/gate.py` | Eval gate — runs at dev (local), CI (PR), and prod (batch). Do not disable. |
-| `evaluation/thresholds.yml` | Gate thresholds — presence triggers CI eval gate. Adjust after baseline runs. |
-| `evaluation/golden_dataset.jsonl` | SME-labeled evaluation dataset. Grow it with production trace failures. |
-| `evaluation/sme_calibration.md` | SME sign-off document. Required before staging promotion. |
-| `evaluation/production_baseline.md` | Production quality baseline. Required before user traffic. |
-| `notebooks/register_agent.py` | Registers model to UC with `@champion` alias. Re-run on code changes. |
+| `src/agents/<name>/eval/evaluate_agent.py` | Eval runner — runs at dev (local), CI (PR), and staging/prod (post-deploy). Do not disable. |
+| `src/agents/<name>/eval/gates.yml` | Gate thresholds — presence triggers CI eval gate. Adjust after baseline runs. |
+| `src/agents/<name>/eval/create_dataset.py` | Eval dataset builder — run as a Databricks notebook to populate the UC eval table. |
+| `src/agents/<name>/eval/utils.py` | Pure-Python gate logic — unit-testable without Spark or a workspace connection. |
+| `docs/sme_calibration.md` | SME sign-off document (user-created). Required before staging promotion. |
+| `docs/production_baseline.md` | Production quality baseline (user-created). Required before user traffic. |
 | `databricks.yml` | DAB config — three targets (dev/staging/prod), vars, resources. Source of truth for what deploys. |
 | `.agentops-stacks/manifest.yml` | Scaffold contract. Records which patterns have been applied. |
 | `workflows/single-account-single-agent.json` | Machine-readable lifecycle definition with all validations and escalation hints. |

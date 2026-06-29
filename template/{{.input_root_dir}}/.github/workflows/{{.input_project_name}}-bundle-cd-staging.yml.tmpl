@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
       - id: check
         run: |
-          if [ -f evaluation/thresholds.yml ]; then
+          if find src/agents -name "gates.yml" -path "*/eval/gates.yml" 2>/dev/null | grep -q .; then
             echo "has_eval=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_eval=false" >> "$GITHUB_OUTPUT"
@@ -56,12 +56,10 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - run: uv sync
-      - name: Run eval gate (post-deploy)
+      - name: Run eval gate for each agent (post-deploy)
         run: |
-          if [ -f evaluation/gate.py ]; then
-            uv run python evaluation/gate.py
-          else
-            echo "::error::evaluation/thresholds.yml exists but evaluation/gate.py is missing."
-            exit 1
-          fi
+          for gates_file in $(find src/agents -name "gates.yml" -path "*/eval/gates.yml"); do
+            agent_dir=$(dirname "$(dirname "$gates_file")")
+            echo "Running eval gate for $agent_dir"
+            (cd "$agent_dir" && uv sync && uv run python eval/evaluate_agent.py)
+          done

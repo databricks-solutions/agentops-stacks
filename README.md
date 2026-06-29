@@ -1,25 +1,28 @@
 # agentops-stacks
 
-A Declarative Automation Bundle (DAB) template + coding-assistant plugin for AI projects on Databricks. Scaffolds the production envelope — dev/staging/prod targets, Unity Catalog conventions, CI/CD wiring for four platforms — and adds production patterns (evaluation gates, governance posture, monitoring, feedback loops) as the project matures.
+A Declarative Automation Bundle (DAB) template + coding-assistant plugin for production-ready multi-agent LangGraph projects on Databricks. Scaffolds the production envelope — per-agent Databricks Apps, shared components (Vector Search, Lakebase, UC functions), dev/staging/prod targets, Unity Catalog conventions, CI/CD wiring for four platforms — and adds production patterns (evaluation gates, governance posture, monitoring, feedback loops) as the project matures.
 
 ## What you get
 
-agentops-stacks generates the production envelope for an AI project on Databricks. The scaffold includes:
+agentops-stacks generates the production envelope for a multi-agent LangGraph project on Databricks. The scaffold includes:
 
 - Three-environment Declarative Automation Bundle (dev / staging / prod) with `direct` deployment engine
-- One Unity Catalog catalog per environment, plus a schema and managed volume for artifacts
-- MLflow experiment configured to land artifacts in the volume
+- Per-agent LangGraph graph served as a Databricks App via MLflow AgentServer — one App resource per agent
+- Shared components scaffolded on demand: Vector Search (RAG retrieval), Lakebase (Postgres conversation memory), UC function tools
+- One Unity Catalog catalog per environment, plus schemas, volumes, and per-agent MLflow experiments
 - CI/CD wiring for one of four platforms — GitHub Actions, GitHub Actions for GHES, GitLab, or Azure DevOps — with PR validation, staging deploy on merge to `main`, and prod deploy on `v*` tag
 - Cloud auth (Azure service principal; AWS and GCP tokens) wired into the CI/CD workflows
+- Per-agent evaluation harness: `eval/gates.yml`, `eval/create_dataset.py`, `eval/evaluate_agent.py`
 - `AGENTS.md` with conventions for coding assistants
 - `docs/setup.md` covering UC catalogs, CLI profiles, and CI/CD credentials
 
-Application code, pipelines, model serving, jobs, and apps go under `src/` and new files in `resources/`. Familiarity with Declarative Automation Bundles and CI/CD pipelines is assumed.
+Agent code lives under `src/agents/<name>/`. Shared components live under `src/components/`. New DAB resources go in `resources/`. Familiarity with Declarative Automation Bundles and CI/CD pipelines is assumed.
 
 ## Prerequisites
 
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html) — recent enough to support the direct deployment engine (any release from the past 6 months is safe)
 - [uv](https://docs.astral.sh/uv/) package manager
+- [Node.js](https://nodejs.org/) >=20.19 — for the chat UI frontend bundled with each agent App
 - A Databricks workspace with Unity Catalog enabled (one catalog per environment — see `docs/setup.md` in the rendered project)
 - [ai-dev-kit plugin](https://github.com/databricks-solutions/ai-dev-kit) — required for the post-scaffold workflow (eval gates, monitoring, governance). Install before the plugin's post-scaffold skills land
 
@@ -37,18 +40,25 @@ Works anywhere `databricks` runs — local terminal, CI, or Genie Code.
 databricks bundle init https://github.com/databricks-solutions/agentops-stacks
 ```
 
-The CLI prompts for `project_name`, `cloud`, and `cicd_platform`. For non-interactive runs, supply the values via `--config-file <path>`:
+The CLI prompts for all inputs interactively. For non-interactive runs, supply the values via `--config-file <path>`:
 
 ```bash
 cat > inputs.json <<'EOF'
 {
-  "input_project_name": "my_agent",
+  "input_project_name": "my_agentops_project",
+  "input_initial_agent_name": "default",
   "input_cloud": "aws",
-  "input_cicd_platform": "github_actions"
+  "input_cicd_platform": "github_actions",
+  "input_use_vector_search": "no",
+  "input_use_lakebase": "no",
+  "input_use_uc_functions": "no",
+  "input_eval_dataset_source": "synthetic"
 }
 EOF
 databricks bundle init https://github.com/databricks-solutions/agentops-stacks --config-file inputs.json
 ```
+
+See `databricks_template_schema.json` for the full set of inputs and their allowed values (cloud, CI/CD platform, Vector Search, Lakebase memory type, UC functions, eval dataset source).
 
 ### Drive the CLI from a coding assistant
 
@@ -71,7 +81,7 @@ Once installed, the plugin is invoked by your coding assistant. There's nothing 
    - Type `/init-agentops-stacks` (Claude Code / Cursor only), or
    - Say "scaffold a new agentops-stacks project" — the assistant matches the skill's description and starts the flow.
 
-3. **Answer the prompts.** The skill asks for project name, cloud (aws / azure / gcp), CI/CD platform, and destination. Defaults are sensible — confirm or adjust.
+3. **Answer the prompts.** The skill collects inputs in five phases: infrastructure (project name, agent name, cloud, CI/CD platform, destination), data sources (Vector Search, Lakebase memory), tools (local Python tools, UC functions), evaluation (dataset source), then confirms and runs the scaffold. Defaults are sensible — confirm or adjust.
 
 4. **Follow the next-steps message.** The CLI prints the post-scaffold sequence — `uv sync`, fill in `databricks.yml` workspace hosts, validate, deploy. The assistant relays it unchanged.
 
@@ -80,13 +90,25 @@ Once installed, the plugin is invoked by your coding assistant. There's nothing 
 ## After scaffolding
 
 ```bash
-cd <project_name>
-uv sync                                                       # generates uv.lock — commit it
-databricks bundle validate -t dev --profile <dev-profile>
-databricks bundle deploy -t dev --profile <dev-profile>
+cd <project_name>/src/agents/<agent_name>
+uv sync                            # generates uv.lock — commit it
+cp .env.example .env               # configure Databricks auth
+uv run python app/start_server.py  # run the agent locally
+uv run agent-evaluate              # run the evaluation harness
+databricks bundle deploy -t dev    # deploy to Databricks
 ```
 
-Set workspace hosts and Unity Catalog grants per `docs/setup.md` in the rendered project before deploying.
+Set workspace hosts and Unity Catalog grants per `docs/setup.md` in the rendered project before deploying to staging or prod.
+
+### Adding more agents
+
+Once the first scaffold is in place, use the `/add-agent` command (or say "add a new agent") to wire a second agent into the same bundle:
+
+```bash
+# In your coding assistant:
+/add-agent
+# or: "add a support agent to this project"
+```
 
 If the bundle was scaffolded inside a Databricks **Git folder** in the workspace (the recommended path for Genie Code users), the workspace UI also surfaces a **Deployments panel** on the bundle that lets you pick a target and deploy with one click — no terminal required. This matches the layout produced by the workspace UI's native "Create → Bundle" flow.
 
