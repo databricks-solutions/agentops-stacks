@@ -1,0 +1,15 @@
+# Code owners for agentops-stacks.
+# Changes to CI/CD workflows and the test harness require review from a code
+# owner. Combine with branch protection ("Require review from Code Owners") on
+# the default branch to enforce.
+
+# CI/CD workflows — highest-value supply-chain surface.
+/.github/            @veenaramesh @alexbaur @sdonohoo-db
+/.github/workflows/  @veenaramesh @alexbaur @sdonohoo-db
+
+# Test harness.
+/tests/       @veenaramesh @alexbaur @sdonohoo-db
+/conftest.py  @veenaramesh @alexbaur @sdonohoo-db
+
+# Dependency manifests.
+/dev-requirements.txt @veenaramesh @alexbaur @sdonohoo-db
