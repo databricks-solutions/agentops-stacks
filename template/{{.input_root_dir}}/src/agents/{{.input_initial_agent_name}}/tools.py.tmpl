@@ -20,6 +20,82 @@ UC_FUNCTION_NAMES = sorted(
     if f.suffix in (".py", ".sql") and not f.name.startswith("_")
 ) if _DEFINITIONS_DIR.exists() else []
 {{ end }}
+{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "long_term") (eq .input_memory_type "both"))) }}
+import json
+
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+from langgraph.store.base import BaseStore
+
+
+def memory_tools() -> list:
+    """Long-term memory tools backed by the Lakebase AsyncDatabricksStore.
+
+    Each tool reads the store and user_id from the request config
+    (config["configurable"]), which agent.py populates per request. Memories are
+    namespaced per user, so one user never sees another's facts.
+    """
+
+    @tool
+    async def get_user_memory(query: str, config: RunnableConfig) -> str:
+        """Search for relevant information about the user from long-term memory."""
+        user_id = config.get("configurable", {}).get("user_id")
+        if not user_id:
+            return "Memory not available - no user_id provided."
+
+        store: BaseStore | None = config.get("configurable", {}).get("store")
+        if not store:
+            return "Memory not available - store not configured."
+
+        namespace = ("user_memories", user_id.replace(".", "-"))
+        results = await store.asearch(namespace, query=query, limit=5)
+        if not results:
+            return "No memories found for this user."
+
+        memory_items = [f"- [{item.key}]: {json.dumps(item.value)}" for item in results]
+        return f"Found {len(results)} relevant memories:\n" + "\n".join(memory_items)
+
+    @tool
+    async def save_user_memory(memory_key: str, memory_data_json: str, config: RunnableConfig) -> str:
+        """Save information about the user to long-term memory.
+
+        memory_data_json must be a JSON object (e.g. '{"favorite_color": "blue"}').
+        """
+        user_id = config.get("configurable", {}).get("user_id")
+        if not user_id:
+            return "Cannot save memory - no user_id provided."
+
+        store: BaseStore | None = config.get("configurable", {}).get("store")
+        if not store:
+            return "Cannot save memory - store not configured."
+
+        namespace = ("user_memories", user_id.replace(".", "-"))
+        try:
+            memory_data = json.loads(memory_data_json)
+            if not isinstance(memory_data, dict):
+                return f"Failed: memory_data must be a JSON object, not {type(memory_data).__name__}"
+            await store.aput(namespace, memory_key, memory_data)
+            return f"Successfully saved memory '{memory_key}' for user."
+        except json.JSONDecodeError as e:
+            return f"Failed to save memory: Invalid JSON - {e}"
+
+    @tool
+    async def delete_user_memory(memory_key: str, config: RunnableConfig) -> str:
+        """Delete a specific memory from the user's long-term memory."""
+        user_id = config.get("configurable", {}).get("user_id")
+        if not user_id:
+            return "Cannot delete memory - no user_id provided."
+
+        store: BaseStore | None = config.get("configurable", {}).get("store")
+        if not store:
+            return "Cannot delete memory - store not configured."
+
+        namespace = ("user_memories", user_id.replace(".", "-"))
+        await store.adelete(namespace, memory_key)
+        return f"Successfully deleted memory '{memory_key}' for user."
+
+    return [get_user_memory, save_user_memory, delete_user_memory]
+{{ end }}
 
 def get_tools() -> list:
     """Return the tools available to this agent."""
@@ -29,4 +105,8 @@ def get_tools() -> list:
         qualified = [f"{CATALOG}.{SCHEMA}.{name}" for name in UC_FUNCTION_NAMES]
         toolkit = UCFunctionToolkit(function_names=qualified)
         tools.extend(toolkit.tools)
-{{ end }}    return tools
+{{ end }}
+{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "long_term") (eq .input_memory_type "both"))) }}
+    tools.extend(memory_tools())
+{{ end }}
+    return tools

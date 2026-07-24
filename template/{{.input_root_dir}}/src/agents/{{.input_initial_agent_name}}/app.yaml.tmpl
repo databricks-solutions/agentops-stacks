@@ -9,4 +9,6 @@ env:
     value: "databricks-claude-sonnet-4"
 {{ if (eq .input_use_lakebase "yes") }}  - name: LAKEBASE_ENDPOINT
     value: "" # TODO: Set the Lakebase endpoint path, e.g. projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production/endpoints/<endpoint-id>
+{{ end }}{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "long_term") (eq .input_memory_type "both"))) }}  - name: DATABRICKS_EMBEDDING_ENDPOINT
+    value: "databricks-gte-large-en" # Embedding endpoint for long-term memory semantic search (1024 dims)
 {{ end }}

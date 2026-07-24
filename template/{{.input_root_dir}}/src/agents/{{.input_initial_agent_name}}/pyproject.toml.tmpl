@@ -14,8 +14,9 @@ dependencies = [
     "python-dotenv>=1.2.1",
 {{ if (eq .input_use_vector_search "yes") }}    "databricks-vectorsearch",
 {{ end }}
-{{ if (eq .input_use_lakebase "yes") }}    "databricks-ai-bridge[memory]>=0.21.0",
-    "langgraph-checkpoint-postgres",
+{{ if (eq .input_use_lakebase "yes") }}    # [memory] pulls langgraph-checkpoint-postgres + databricks-ai-bridge[memory]
+    # (LakebaseClient, used by the lakebase-ops skill) transitively.
+    "databricks-langchain[memory]>=0.19.0",
 {{ end }}
 ]
 

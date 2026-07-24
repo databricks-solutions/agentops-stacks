@@ -70,45 +70,87 @@ def should_continue(state: MessagesState) -> str:
         return "tool_node"
     return END
 
-{{ if (eq .input_use_lakebase "yes") }}
-# --- Lakebase (Autoscaling) checkpointer ---
+{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "short_term") (eq .input_memory_type "both"))) }}
+# --- Lakebase (Autoscaling) short-term memory: conversation checkpointer ---
 
-# Reused across requests. The databricks-ai-bridge pool mints and rotates
-# short-lived Lakebase OAuth credentials on each physical connection, so the
-# pool is safe to keep open — no per-request reconnection is needed.
-_pool = None
-_tables_created = False
+# Reused across requests. databricks-langchain's AsyncCheckpointSaver is a thin
+# AsyncPostgresSaver subclass backed by a Lakebase connection pool that mints and
+# rotates short-lived Lakebase OAuth credentials on each physical connection, so
+# the saver is safe to keep open — no per-request reconnection is needed.
+_checkpointer = None
+_checkpointer_ready = False
 
 
 async def get_async_checkpointer():
-    """Create an AsyncPostgresSaver backed by a Lakebase Autoscaling connection pool.
+    """Return a process-wide AsyncCheckpointSaver bound to the Lakebase endpoint.
 
-    Uses databricks-ai-bridge's AsyncLakebasePool, which resolves the endpoint,
-    mints Lakebase-scoped OAuth tokens, and rotates them as connections recycle.
-    Returns None (agent runs without memory) if LAKEBASE_ENDPOINT is unset or the
-    connection fails.
+    Returns None (agent runs without short-term memory) if LAKEBASE_ENDPOINT is
+    unset or the connection fails.
     """
-    global _pool, _tables_created
+    global _checkpointer, _checkpointer_ready
 
     endpoint = os.environ.get("LAKEBASE_ENDPOINT")
     if not endpoint:
         return None
 
     try:
-        from databricks_ai_bridge.lakebase import AsyncLakebasePool
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from databricks_langchain import AsyncCheckpointSaver
 
-        if _pool is None:
-            _pool = AsyncLakebasePool(autoscaling_endpoint=endpoint)
-            await _pool.open()
-        checkpointer = AsyncPostgresSaver(_pool.pool)
-        if not _tables_created:
-            await checkpointer.setup()
-            _tables_created = True
+        if _checkpointer is None:
+            _checkpointer = AsyncCheckpointSaver(autoscaling_endpoint=endpoint)
+            # Open the underlying Lakebase pool (what `async with` does under the
+            # hood) and keep it open for the process lifetime.
+            await _checkpointer.__aenter__()
+        if not _checkpointer_ready:
+            await _checkpointer.setup()
+            _checkpointer_ready = True
             logger.info(f"Lakebase checkpointer connected to {endpoint}")
-        return checkpointer
+        return _checkpointer
     except Exception as e:
-        logger.warning(f"Failed to connect to Lakebase ({endpoint}): {e}. Running without memory.")
+        logger.warning(f"Failed to connect to Lakebase ({endpoint}): {e}. Running without short-term memory.")
+        return None
+{{ end }}
+{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "long_term") (eq .input_memory_type "both"))) }}
+# --- Lakebase (Autoscaling) long-term memory: per-user semantic store ---
+
+# AsyncDatabricksStore persists durable, per-user facts and supports semantic
+# search via a Databricks embedding endpoint. Exposed to the agent through the
+# get_user_memory / save_user_memory / delete_user_memory tools (see tools.py),
+# which read this store from the request config. Kept open across requests.
+_store = None
+_store_ready = False
+
+
+async def get_async_store():
+    """Return a process-wide AsyncDatabricksStore bound to the Lakebase endpoint.
+
+    Returns None (agent runs without long-term memory) if LAKEBASE_ENDPOINT is
+    unset or the connection fails.
+    """
+    global _store, _store_ready
+
+    endpoint = os.environ.get("LAKEBASE_ENDPOINT")
+    if not endpoint:
+        return None
+
+    try:
+        from databricks_langchain import AsyncDatabricksStore
+
+        embedding_endpoint = os.environ.get("DATABRICKS_EMBEDDING_ENDPOINT", "databricks-gte-large-en")
+        if _store is None:
+            _store = AsyncDatabricksStore(
+                autoscaling_endpoint=endpoint,
+                embedding_endpoint=embedding_endpoint,
+                embedding_dims=1024,  # databricks-gte-large-en
+            )
+            await _store.__aenter__()
+        if not _store_ready:
+            await _store.setup()
+            _store_ready = True
+            logger.info(f"Lakebase long-term store connected to {endpoint}")
+        return _store
+    except Exception as e:
+        logger.warning(f"Failed to connect to Lakebase store ({endpoint}): {e}. Running without long-term memory.")
         return None
 {{ end }}
 

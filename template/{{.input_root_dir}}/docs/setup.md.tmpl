@@ -157,22 +157,39 @@ Repeat for prod against the prod catalog and prod SP.
 {{ if (eq .input_use_lakebase `yes`) }}
 ## 2e. Lakebase (Autoscaling Postgres) for agent memory
 
-This project uses a Lakebase Autoscaling project for agent conversation memory
-(a LangGraph Postgres checkpointer). The bundle declares it in
-`resources/lakebase.yml` (`postgres_projects.memory`) and `databricks bundle deploy`
-creates the project, its `production` branch, and a read-write compute endpoint
-(0.5–2 CU; scale-to-zero after 5 min idle on dev, always-on in staging/prod).
+This project uses a Lakebase Autoscaling project for agent memory. The bundle
+declares it in `resources/lakebase.yml` (`postgres_projects.memory`) and
+`databricks bundle deploy` creates the project, its `production` branch, and a
+read-write compute endpoint (0.5–2 CU; scale-to-zero after 5 min idle on dev,
+always-on in staging/prod).
 
+This project is configured for **{{ .input_memory_type }}** memory:
+{{ if (or (eq .input_memory_type "short_term") (eq .input_memory_type "both")) }}
+- **Short-term memory** — a LangGraph Postgres checkpointer
+  (`databricks_langchain.AsyncCheckpointSaver`) that preserves conversation history
+  within a session. Pass `session_id` in the request's `custom_inputs` (or a
+  `conversation_id` context) to resume a thread.
+{{ end }}{{ if (or (eq .input_memory_type "long_term") (eq .input_memory_type "both")) }}
+- **Long-term memory** — a per-user semantic store
+  (`databricks_langchain.AsyncDatabricksStore`) surfaced to the agent through the
+  `get_user_memory` / `save_user_memory` / `delete_user_memory` tools. Pass
+  `user_id` in the request's `custom_inputs` to scope memories per user; without it
+  the tools no-op. Semantic search uses the embedding endpoint set by
+  `DATABRICKS_EMBEDDING_ENDPOINT` (default `databricks-gte-large-en`, 1024 dims).
+{{ end }}
 Prerequisites and notes:
 
 - The deploying identity needs **CAN MANAGE on Lakebase projects** in the workspace.
 - The app connects with a short-lived, Lakebase-scoped OAuth credential minted by
-  the `databricks-ai-bridge` SDK — no static password. The app resource in
+  the `databricks-langchain` memory SDK — no static password. The app resource in
   `databricks.yml` grants the app service principal `CAN_CONNECT_AND_CREATE`.
-- **Deploy the app before running it locally.** The app service principal must
-  create (and thereby own) the checkpointer schema in Postgres. If you connect
-  locally first, your user owns the schema and the deployed app hits
-  `permission denied`. See the `lakebase-ops` skill to recover.
+{{ if (or (eq .input_memory_type "long_term") (eq .input_memory_type "both")) }}- Long-term memory queries the embedding endpoint, so the app service principal
+  needs **CAN QUERY** on `databricks-gte-large-en` (or whatever
+  `DATABRICKS_EMBEDDING_ENDPOINT` points to).
+{{ end }}- **Deploy the app before running it locally.** The app service principal must
+  create (and thereby own) the memory schema in Postgres. If you connect locally
+  first, your user owns the schema and the deployed app hits `permission denied`.
+  See the `lakebase-ops` skill to recover.
 - After the first deploy, set `LAKEBASE_ENDPOINT` in the agent's `app.yaml` to the
   endpoint path. Get it with:
 
