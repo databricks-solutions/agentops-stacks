@@ -255,6 +255,50 @@ def test_lakebase_disabled_omits_resource(tmp_path):
     assert not file_exists(gen(tmp_path), "resources/lakebase.yml")
 
 
+def test_lakebase_resource_is_autoscaling(tmp_path):
+    """The Lakebase resource uses Autoscaling (postgres_projects), not Provisioned."""
+    content = read_file(gen(tmp_path, input_use_lakebase="yes"), "resources/lakebase.yml")
+    assert "postgres_projects" in content
+    assert "autoscaling_limit_max_cu" in content
+    # No leftover Provisioned resource types / fields.
+    assert "database_instances" not in content
+    assert "database_catalogs" not in content
+    assert "capacity: CU_" not in content
+
+
+def test_lakebase_app_resource_uses_postgres_key(tmp_path):
+    """The app binds the memory via the `postgres` resource key, not the Provisioned `database` key."""
+    content = read_file(gen(tmp_path, input_use_lakebase="yes"), "databricks.yml")
+    assert "postgres:" in content
+    assert "branches/production" in content
+    assert "instance_name:" not in content
+    # The database *resource id* is hyphenated (databricks-postgres); using the
+    # underscore Postgres db name here fails deploy with a 404. Guard against it.
+    assert "databases/databricks-postgres" in content
+    assert "databases/databricks_postgres" not in content
+
+
+def test_lakebase_checkpointer_uses_ai_bridge(tmp_path):
+    """graph.py connects via databricks-ai-bridge AsyncLakebasePool, not w.database."""
+    content = read_file(
+        gen(tmp_path, input_use_lakebase="yes"), "src/agents/default/graph.py"
+    )
+    assert "AsyncLakebasePool" in content
+    assert "databricks_ai_bridge" in content
+    assert "LAKEBASE_ENDPOINT" in content
+    # No leftover Provisioned SDK calls / env vars.
+    assert "w.database.generate_database_credential" not in content
+    assert "instance_names" not in content
+    assert "LAKEBASE_INSTANCE" not in content
+
+
+def test_lakebase_pyproject_adds_ai_bridge_memory(tmp_path):
+    content = read_file(
+        gen(tmp_path, input_use_lakebase="yes"), "src/agents/default/pyproject.toml"
+    )
+    assert "databricks-ai-bridge[memory]" in content
+
+
 # ---------------------------------------------------------------------------
 # Eval dataset source conditional output
 # ---------------------------------------------------------------------------

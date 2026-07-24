@@ -37,9 +37,11 @@ resources:
             experiment_id: ${resources.experiments.experiment.id}
             permission: "CAN_MANAGE"
 {{ if (eq .input_use_lakebase "yes") }}        - name: "memory"
-          database:
-            instance_name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
-            database_name: "default"
+          postgres:
+            branch: ${resources.postgres_projects.memory.id}/branches/production
+            # The database *resource id* is hyphenated (databricks-postgres); the
+            # Postgres database name it maps to is databricks_postgres.
+            database: ${resources.postgres_projects.memory.id}/branches/production/databases/databricks-postgres
             permission: "CAN_CONNECT_AND_CREATE"
 {{ end }}
 
@@ -55,7 +57,13 @@ targets:
       host: # TODO: set dev workspace URL
     variables:
       catalog: {{ .input_project_name }}_dev
-
+{{ if (eq .input_use_lakebase "yes") }}    resources:
+      postgres_projects:
+        memory:
+          # Scale the memory endpoint to zero after 5 min idle to save cost in dev.
+          default_endpoint_settings:
+            suspend_timeout_duration: 300s
+{{ end }}
   staging:
     mode: production
     workspace:

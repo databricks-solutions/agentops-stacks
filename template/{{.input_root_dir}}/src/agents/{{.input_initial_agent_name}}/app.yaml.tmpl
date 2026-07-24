@@ -7,10 +7,6 @@ env:
     value: "${var.schema}"
   - name: LLM_ENDPOINT
     value: "databricks-claude-sonnet-4"
-{{ if (eq .input_use_lakebase "yes") }}  - name: LAKEBASE_INSTANCE
-    value: "" # TODO: Set your Lakebase instance name
-  - name: LAKEBASE_HOST
-    value: "" # TODO: Set your Lakebase instance read-write DNS
-  - name: LAKEBASE_DB
-    value: "default"
+{{ if (eq .input_use_lakebase "yes") }}  - name: LAKEBASE_ENDPOINT
+    value: "" # TODO: Set the Lakebase endpoint path, e.g. projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production/endpoints/<endpoint-id>
 {{ end }}
