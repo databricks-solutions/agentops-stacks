@@ -1,0 +1,107 @@
+# Databricks notebook source
+
+# MAGIC %md
+# MAGIC # Bootstrap Agent Bricks Supervisor — {{SUPERVISOR_NAME}}
+# MAGIC
+# MAGIC **Why a notebook and not `databricks.yml`?** An Agent Bricks Supervisor
+# MAGIC (MAS) tile is **not a Declarative Automation Bundle resource type**. It
+# MAGIC cannot be created by `databricks bundle deploy`. This notebook provisions
+# MAGIC it imperatively via the Beta SDK, and the surrounding bundle-declared job
+# MAGIC (`resources/supervisor_{{SUPERVISOR_NAME}}_bootstrap.yml`) makes running it
+# MAGIC repeatable and CI-triggerable.
+# MAGIC
+# MAGIC Standing requirement honored: *"Notebooks only create resources DAB
+# MAGIC doesn't yet support. Document why so it can be migrated when support lands."*
+# MAGIC
+# MAGIC **Beta / prereqs:**
+# MAGIC - Agent Bricks Supervisor is Beta; the management SDK requires
+# MAGIC   account-admin approval to enable.
+# MAGIC - Each sub-agent must already exist (Genie space, KA endpoint, serving
+# MAGIC   endpoint, UC function, or MCP connection).
+# MAGIC - The end user querying the supervisor must have access to **every**
+# MAGIC   sub-agent, or the supervisor cannot answer.
+# MAGIC
+# MAGIC Docs: https://docs.databricks.com/aws/en/generative-ai/agent-bricks/multi-agent-supervisor
+
+# COMMAND ----------
+
+dbutils.widgets.text("catalog", "", "Unity Catalog (for endpoint reference)")
+dbutils.widgets.text("schema", "", "Schema")
+
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
+
+# Sub-agent routes recorded at scaffold time.
+ROUTES = {{ROUTES_PY_LIST}}
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Configure sub-agents
+# MAGIC
+# MAGIC Provide exactly one backing reference per agent: `genie_space_id`,
+# MAGIC `ka_tile_id`, `endpoint_name`, `uc_function_name`, or `connection_name`.
+# MAGIC The `description` is critical — it drives the supervisor's routing.
+
+# COMMAND ----------
+
+# TODO: map each route to its real backend. Example shapes:
+AGENTS = [
+    # {"name": "rag", "endpoint_name": "my-rag-endpoint",
+    #  "description": "Answers product questions from indexed docs."},
+    # {"name": "analytics", "genie_space_id": "01abc...",
+    #  "description": "SQL analytics on usage metrics and trends."},
+]
+
+INSTRUCTIONS = (
+    "Route each request to the single most appropriate specialist based on its "
+    "description. If the request spans domains, gather information first, then act."
+)
+
+assert AGENTS, (
+    "No sub-agents configured. Map each route in ROUTES to a backend in AGENTS "
+    f"before running. Routes recorded at scaffold time: {ROUTES}"
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Create or update the Supervisor tile (Beta SDK)
+# MAGIC
+# MAGIC This mirrors the `manage_mas` MCP tool. If you have the agentops MCP /
+# MAGIC ai-dev-kit tooling available in your assistant, you can instead call
+# MAGIC `manage_mas(action="create_or_update", ...)` and skip the raw SDK call.
+
+# COMMAND ----------
+
+# The exact Beta SDK import path is version-dependent. Prefer the manage_mas
+# MCP tool where available. Raw-SDK sketch:
+#
+# from databricks.agents.supervisor import create_or_update_supervisor  # Beta
+# result = create_or_update_supervisor(
+#     name="{{SUPERVISOR_NAME}}",
+#     agents=AGENTS,
+#     description="{{SUPERVISOR_NAME}} supervisor — {{PROJECT_NAME}}",
+#     instructions=INSTRUCTIONS,
+# )
+# endpoint_name = result.endpoint_name
+# print(f"Supervisor endpoint: {endpoint_name}")
+# print("Record this in .agentops-stacks/manifest.yml under supervisor.endpoint")
+
+raise NotImplementedError(
+    "Fill in AGENTS above and enable the Beta Supervisor SDK (or use the "
+    "manage_mas MCP tool), then remove this guard. Provisioning is imperative "
+    "and Beta — this is intentionally not silent."
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## After provisioning
+# MAGIC
+# MAGIC 1. Wait for endpoint status `ONLINE` (2–5 min).
+# MAGIC 2. Record the endpoint name in `.agentops-stacks/manifest.yml`
+# MAGIC    (`supervisor.endpoint`).
+# MAGIC 3. To let other agents in this bundle *consume* it, add a
+# MAGIC    `serving_endpoint` resource referencing it and grant the app SP query
+# MAGIC    access. The bundle consumes it; it does not create it.

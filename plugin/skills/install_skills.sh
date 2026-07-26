@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SKILL_NAMES=("agentops-stacks" "agentops-lifecycle" "add-agent" "vector-search-ops" "lakebase-ops" "uc-functions-ops")
+SKILL_NAMES=("agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "vector-search-ops" "lakebase-ops" "uc-functions-ops")
 SKILLS_DIR=".claude/skills"
 INSTALL_TO_GENIE=false
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
@@ -50,6 +50,7 @@ show_help() {
     echo "  - agentops-stacks:    Scaffold a new DAB project with CI/CD and UC conventions"
     echo "  - agentops-lifecycle: Guide an existing scaffold through the 10-step dev→prod lifecycle"
     echo "  - add-agent:          Add a second agent to an existing scaffold"
+    echo "  - add-supervisor:     Add a supervisor that routes across agents (best-fit pattern)"
     echo "  - vector-search-ops:  Operate and troubleshoot the Vector Search component"
     echo "  - lakebase-ops:       Operate and troubleshoot the Lakebase memory component"
     echo "  - uc-functions-ops:   Register, grant, and manage UC function tools"
@@ -67,6 +68,10 @@ list_skills() {
     echo ""
     echo -e "  ${GREEN}add-agent${NC}"
     echo "    Add a second agent to an existing scaffold"
+    echo ""
+    echo -e "  ${GREEN}add-supervisor${NC}"
+    echo "    Add a supervisor that routes across agents — picks the best-fit pattern"
+    echo "    (custom LangGraph / Supervisor API / Agent Bricks MAS)"
     echo ""
     echo -e "  ${GREEN}vector-search-ops${NC}"
     echo "    Check index status, trigger sync, test retriever, update DLT pipeline"

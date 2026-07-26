@@ -295,6 +295,40 @@ endpoint or UC model registration required.
 
 ---
 
+## Step 3.5 — Add a Supervisor (only when you have >1 agent)
+
+If the project has more than one agent, add a supervisor to route user queries
+across them. This is a post-scaffold pattern — use the `/add-supervisor` skill.
+Skip if you have a single agent.
+
+The supervisor is chosen by best fit across three patterns (Selection Matrix in
+the `add-supervisor` skill), summarized:
+
+| Pattern | Loop owner | In the bundle | DAB-declarable | Status |
+|---|---|---|---|---|
+| **custom** (default) | your code | agent App under `src/agents/` | yes, natively | GA |
+| **supervisor_api** | Databricks | wrapper App under `src/agents/` | yes, as an App | Beta |
+| **agent_bricks_mas** | Databricks tile | none — a consumed endpoint | no (bootstrap job) | UI GA / SDK Beta |
+
+- Default to **custom** — it's GA, fully declarable, and gated by the same eval
+  loop as every other agent (a supervisor scaffolded as an agent App gets its
+  own `eval/gates.yml`, which CI's `detect_patterns → eval_gate` picks up with
+  no workflow change).
+- Choose **supervisor_api** for a managed loop with minimal code; **agent_bricks_mas**
+  for a no-code, SME-iterable tile. See `docs/supervisor-patterns.md`.
+
+```bash
+# In your coding assistant:
+/add-supervisor
+# or: "add a supervisor that routes between my rag and support agents"
+```
+
+The supervisor is recorded in `.agentops-stacks/manifest.yml` under
+`supervisor:`. From here, the rest of the lifecycle (eval gate, CI, staging,
+prod) applies to the supervisor agent exactly as it does to any agent.
+
+---
+
 ## Step 4 — Offline Evaluation & Eval Gate Setup
 
 Build the evaluation framework **before** any code leaves dev. The scaffold

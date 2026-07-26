@@ -19,3 +19,12 @@ components:
 # Registered agents (add new agents here or via /add-agent skill)
 agents:
   - name: {{ .input_initial_agent_name }}
+
+# Supervisor agent (added via /add-supervisor once you have >1 agent).
+# Routes user queries across the agents above. Three patterns are supported —
+# see docs/supervisor-patterns.md. None is configured until you add one.
+# supervisor:
+#   type: custom | supervisor_api | agent_bricks_mas
+#   name: <supervisor_agent_name>
+#   routes: [<agent_a>, <agent_b>]
+#   endpoint: ""   # agent_bricks_mas only — the provisioned managed endpoint
