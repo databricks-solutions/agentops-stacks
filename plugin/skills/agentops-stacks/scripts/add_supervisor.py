@@ -141,6 +141,11 @@ def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
                   else "graph_supervisor_api.py.tmpl")
     (new_dir / "graph.py").write_text(render(graph_tmpl, subs))
     (new_dir / "tools.py").write_text(render("tools_supervisor.py.tmpl", subs))
+    # Overwrite agent.py with the supervisor handler. The source agent's agent.py
+    # may import graph symbols (e.g. get_async_checkpointer when the base agent
+    # had Lakebase memory) that the supervisor graph.py doesn't define — which
+    # would break server startup. The supervisor uses a stateless handler.
+    (new_dir / "agent.py").write_text(render("agent_supervisor.py.tmpl", subs))
 
     # Merge extra deps into the supervisor's pyproject.toml.
     _add_supervisor_deps(new_dir / "pyproject.toml", sup_type)

@@ -138,6 +138,25 @@ def test_custom_scaffolds_agent_app(project):
     assert "langgraph-supervisor" in read(project, "src/agents/router/pyproject.toml")
 
 
+def test_custom_overwrites_agent_py(project):
+    # Base agent.py imports `graph` symbols; the supervisor must overwrite it
+    # with its own handler so startup imports resolve against the new graph.py.
+    addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
+    agent_py = read(project, "src/agents/router/agent.py")
+    assert "AgentServer handlers (supervisor)" in agent_py
+    assert "get_async_checkpointer" not in agent_py  # not carried over from a lakebase base
+    assert "from graph import graph" in agent_py
+
+
+def test_custom_overwrites_agent_py_even_with_lakebase_base(project):
+    # Simulate a base agent that had Lakebase memory: its agent.py imports
+    # get_async_checkpointer. The supervisor overwrite must drop that import.
+    base = project / "src" / "agents" / "rag" / "agent.py"
+    base.write_text("from graph import graph_builder, get_async_checkpointer\n")
+    addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
+    assert "get_async_checkpointer" not in read(project, "src/agents/router/agent.py")
+
+
 def test_custom_appends_databricks_yml(project):
     addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
     addsup.append_agent_resources_to_databricks_yml(project, "router")

@@ -72,10 +72,14 @@ def _call_supervisor(messages: list[dict]) -> str:
     return getattr(resp, "output_text", None) or str(resp)
 
 
+# LangChain message .type -> Responses API role.
+_ROLE_MAP = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}
+
+
 def supervisor_node(state: MessagesState) -> dict:
     """Single node: hand the conversation to the managed supervisor loop."""
     messages = [
-        {"role": getattr(m, "type", "user").replace("human", "user"),
+        {"role": _ROLE_MAP.get(getattr(m, "type", "human"), "user"),
          "content": m.content}
         for m in state["messages"]
     ]
