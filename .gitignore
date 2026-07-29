@@ -12,6 +12,11 @@
 # ai-dev-kit local install (skills profile, version — machine-specific).
 /.ai-dev-kit/
 
+# Local editor / MCP tooling configs (machine-specific paths).
+/.cursor/
+/.isaac/
+/.mcp.json
+
 # local bundle files
 **/.databricks/*
 
