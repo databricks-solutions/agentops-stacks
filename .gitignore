@@ -9,6 +9,9 @@
 # Claude Code working dir (per-project settings, local skill installs).
 /.claude/
 
+# ai-dev-kit local install (skills profile, version — machine-specific).
+/.ai-dev-kit/
+
 # local bundle files
 **/.databricks/*
 
