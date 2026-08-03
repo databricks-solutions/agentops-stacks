@@ -71,7 +71,7 @@ list_skills() {
     echo ""
     echo -e "  ${GREEN}add-supervisor${NC}"
     echo "    Add a supervisor that routes across agents — picks the best-fit pattern"
-    echo "    (custom LangGraph / Supervisor API / Agent Bricks MAS)"
+    echo "    (custom LangGraph / Supervisor API)"
     echo ""
     echo -e "  ${GREEN}vector-search-ops${NC}"
     echo "    Check index status, trigger sync, test retriever, update DLT pipeline"

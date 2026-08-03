@@ -4,22 +4,24 @@ A supervisor agent routes user queries across your project's agents. When you
 have more than one agent, add a supervisor with the `/add-supervisor` skill (or
 `plugin/skills/agentops-stacks/scripts/add_supervisor.py`).
 
-There are three supervisor patterns. They differ in **who owns the routing
-loop** and **what artifact lands in this bundle** — pick by best fit, not habit.
+There are two supervisor patterns. They differ in **who owns the routing
+loop** — pick by best fit, not habit. Both are first-class DAB citizens: the
+supervisor is scaffolded as an agent App, so it deploys and is eval-gated like
+any other agent.
 
 ## Choosing a pattern
 
-| | **Custom LangGraph** | **Supervisor API** | **Agent Bricks MAS** |
-|---|---|---|---|
-| Routing loop owned by | Your code | Databricks (managed) | Databricks (managed tile) |
-| Artifact in the bundle | Agent App under `src/agents/` | Wrapper App under `src/agents/` | None — a consumed endpoint |
-| Declarable in `databricks.yml`? | Yes, natively | Yes, as a wrapper App | No — imperative bootstrap job |
-| Gated by the CI eval gate? | Yes | Yes | Verify per-workspace |
-| Status | GA | Beta | UI GA; SDK Beta |
+| | **Custom LangGraph** | **Supervisor API** |
+|---|---|---|
+| Routing loop owned by | Your code | Databricks (managed) |
+| Artifact in the bundle | Agent App under `src/agents/` | Wrapper App under `src/agents/` |
+| Declarable in `databricks.yml`? | Yes, natively | Yes, as a wrapper App |
+| Gated by the CI eval gate? | Yes | Yes |
+| Status | GA | Beta |
 
-**Default: Custom LangGraph.** It is the only pattern that is GA, fully
-DAB-declarable, and gated on real MLflow eval end-to-end. Choose another only
-when its specific advantage is required.
+**Default: Custom LangGraph.** It is GA, fully DAB-declarable, and gated on real
+MLflow eval end-to-end. Choose Supervisor API only when its specific advantage —
+a managed loop with minimal code — is what you want.
 
 ### Decision matrix (first gate that fires wins)
 
@@ -27,11 +29,9 @@ when its specific advantage is required.
    fully in `databricks.yml`) → **Custom**.
 2. **Orchestration control** (custom state, conditional routing, guardrails,
    HITL, Lakebase checkpointer, retry policy) → **Custom**.
-3. **Build modality** (managed loop, no custom graph):
-   - No-code, SME-iterable, broadest tool coverage → **Agent Bricks MAS**.
-   - Code-first, managed loop, per-request model choice → **Supervisor API**.
-4. **Overrides**: HIPAA / enhanced-security or GA-certainty → **Custom**.
-   >50 sub-agents or users lacking access to some sub-agents → not **MAS**.
+3. **Managed loop, no custom graph** (code-first, per-request model choice, and
+   an admin can enable AI Gateway + the UC OTel-traces preview) → **Supervisor API**.
+4. **Override**: HIPAA / enhanced-security or GA-certainty → **Custom**.
 
 ## Pattern 1 — Custom LangGraph supervisor (GA, default)
 
@@ -45,8 +45,9 @@ by the same CI eval loop.
   endpoints (your deployed sibling agents), or in-process ReAct agents.
 - **Deploy**: `databricks bundle deploy -t dev` — no extra steps.
 
-Scaffolded files: `src/agents/<name>/graph.py` (supervisor), `tools.py`,
-`eval/` (inherited), plus an app + experiment in `databricks.yml`.
+Scaffolded files: `src/agents/<name>/graph.py` (supervisor), `agent.py`
+(stateless supervisor handler), `tools.py`, `eval/` (inherited), plus an app +
+experiment in `databricks.yml`.
 
 ## Pattern 2 — Supervisor API (Beta)
 
@@ -62,38 +63,15 @@ per request.
   durable recovery; web search restricted under HIPAA.
 - **Deploy**: `databricks bundle deploy -t dev` (it's still a wrapper App).
 
-## Pattern 3 — Agent Bricks Supervisor / MAS (managed tile)
-
-The no-code Supervisor tile in Agent Bricks. **It is not a DAB resource and
-cannot be created by `bundle deploy`.** This project scaffolds:
-
-- `notebooks/bootstrap_supervisor_<name>.py` — imperative Beta-SDK provisioning.
-- `resources/supervisor_<name>_bootstrap.yml` — a bundle-declared job that runs it.
-
-Run the job (or the notebook) to create the tile out-of-band, then record the
-resulting endpoint in `.agentops-stacks/manifest.yml` (`supervisor.endpoint`).
-Other agents can then **consume** that endpoint as a `serving_endpoint`.
-
-- **Best for** no-code assembly, SME iteration, broadest managed tool coverage
-  (Genie, KA, endpoints, UC functions, dashboards, AI Search, MCP, nested
-  supervisors, web search).
-- **Limits**: max 50 sub-agents; every end user must have access to every
-  sub-agent; AI Search = Delta Sync only; web search restricted under HIPAA.
-
-> **Why a notebook here and not `databricks.yml`?** Per this project's standing
-> requirement, notebooks only create resources DAB doesn't yet support, and we
-> document why. Migrate the MAS tile to a native resource when one exists.
-
 ## Manifest contract
 
 Whichever pattern you pick, it is recorded in `.agentops-stacks/manifest.yml`:
 
 ```yaml
 supervisor:
-  type: custom | supervisor_api | agent_bricks_mas
+  type: custom | supervisor_api
   name: <supervisor_agent_name>
   routes: [agent_a, agent_b]
-  endpoint: ""   # agent_bricks_mas only — the provisioned managed endpoint
 ```
 
 CI and tooling read this contract without needing to know how the supervisor
@@ -105,6 +83,3 @@ was created.
   least-privilege per endpoint. In workspace boundary.
 - **Supervisor API** — authorization respects the caller's UC permissions;
   traces to UC (OTel preview); web search restricted under HIPAA; Beta.
-- **Agent Bricks MAS** — end user needs access to every sub-agent; web search
-  restricted under HIPAA/enhanced-security; provisioning SP ≠ bundle SP —
-  document grants.

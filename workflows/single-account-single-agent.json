@@ -339,17 +339,14 @@
       "decision_matrix": [
         {"gate": "D1", "test": "Lifecycle parity non-negotiable — same DAB + eval gate + dev/staging/prod promotion, GA, fully in databricks.yml", "choose": "custom"},
         {"gate": "D2", "test": "Orchestration control needed — custom state, conditional routing, guardrails, HITL, Lakebase checkpointer, retry policy", "choose": "custom"},
-        {"gate": "D3a", "test": "Managed loop, no-code, SME-iterable, broadest managed tool coverage (dashboards, AI Search, nested supervisors, web search); accepts UI-first + Beta SDK + out-of-band provisioning", "choose": "agent_bricks_mas"},
-        {"gate": "D3b", "test": "Managed loop, code-first, no custom graph, per-request model choice, packaged as a bundle App", "choose": "supervisor_api"},
-        {"gate": "D4", "test": "HIPAA/enhanced-security or GA-certainty required (override)", "choose": "custom"},
-        {"gate": "D4", "test": ">50 sub-agents or users lacking access to some sub-agents (override — rules out MAS)", "choose": "custom_or_supervisor_api"}
+        {"gate": "D3", "test": "Managed loop, code-first, no custom graph, per-request model choice, packaged as a bundle App; admin can enable AI Gateway + UC OTel-traces preview", "choose": "supervisor_api"},
+        {"gate": "D4", "test": "HIPAA/enhanced-security or GA-certainty required (override)", "choose": "custom"}
       ],
       "patterns": {
         "custom": {"status": "GA", "loop_owner": "your code", "artifact": "agent App under src/agents/", "dab_declarable": true, "eval_gated": true},
-        "supervisor_api": {"status": "Beta", "loop_owner": "Databricks (managed)", "artifact": "wrapper App under src/agents/", "dab_declarable": true, "eval_gated": true, "prereqs": "AI Gateway + UC OTel-traces preview"},
-        "agent_bricks_mas": {"status": "UI GA; SDK Beta", "loop_owner": "Databricks (managed tile)", "artifact": "none — consumed endpoint; provisioned by an imperative bootstrap job", "dab_declarable": false, "eval_gated": "verify per-workspace", "limits": "max 50 sub-agents; end user must have access to every sub-agent"}
+        "supervisor_api": {"status": "Beta", "loop_owner": "Databricks (managed)", "artifact": "wrapper App under src/agents/", "dab_declarable": true, "eval_gated": true, "prereqs": "AI Gateway + UC OTel-traces preview"}
       },
-      "manifest_contract": "Recorded in .agentops-stacks/manifest.yml under `supervisor:` with type, name, routes, and (MAS only) endpoint. CI/tooling read this without knowing how the supervisor was created.",
+      "manifest_contract": "Recorded in .agentops-stacks/manifest.yml under `supervisor:` with type, name, and routes. CI/tooling read this without knowing how the supervisor was created.",
       "docs": "docs/supervisor-patterns.md (rendered project)"
     }
   }

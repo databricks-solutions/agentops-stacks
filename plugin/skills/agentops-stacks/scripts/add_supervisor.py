@@ -3,8 +3,8 @@
 
 A supervisor routes user queries across the project's existing agents (and
 other managed sub-agents such as Genie spaces or Knowledge Assistants). This
-script supports the three supervisor patterns AgentOps Stacks recognizes, which
-differ in *who owns the routing loop* and *what artifact lands in the bundle*:
+script supports the two supervisor patterns AgentOps Stacks recognizes, which
+differ in *who owns the routing loop*:
 
   custom          A hand-written LangGraph supervisor graph. It is just another
                   agent under src/agents/<name>/ — served as a Databricks App
@@ -16,20 +16,14 @@ differ in *who owns the routing loop* and *what artifact lands in the bundle*:
                   `custom`; Databricks owns the routing loop. Beta — requires
                   AI Gateway + the UC OTel-traces preview enabled.
 
-  agent_bricks_mas  The Agent Bricks Supervisor tile. This is NOT a DAB resource
-                  and CANNOT be created by `databricks bundle deploy`. The script
-                  scaffolds a bundle-declared *bootstrap job* (imperative, via the
-                  Beta SDK / manage_mas) plus a consumable endpoint reference. The
-                  tile itself is provisioned out-of-band and merely referenced.
-
-For `custom` and `supervisor_api` the supervisor is created by cloning the agent
-scaffold shape (mirroring add_agent.py) and swapping in a supervisor graph, so
-CI's `detect_patterns -> eval_gate` picks it up with zero workflow changes.
+Both patterns create the supervisor by cloning the agent scaffold shape
+(mirroring add_agent.py) and swapping in a supervisor graph, so it is a
+first-class DAB citizen and CI's `detect_patterns -> eval_gate` picks it up with
+zero workflow changes.
 
 Usage:
     python add_supervisor.py --name router --type custom --routes rag,support
     python add_supervisor.py --name router --type supervisor_api --routes rag,support
-    python add_supervisor.py --name ops_mas --type agent_bricks_mas --routes rag,support
 
 Recommended: use the /add-supervisor skill, which runs the Selection Matrix
 conversationally and then calls this script.
@@ -42,7 +36,7 @@ import sys
 from pathlib import Path
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,}$")
-VALID_TYPES = {"custom", "supervisor_api", "agent_bricks_mas"}
+VALID_TYPES = {"custom", "supervisor_api"}
 
 # Templates live next to this script so they ship with the plugin and don't
 # collide with the DAB `template/` tree (which is Go-templated by bundle init).
@@ -214,55 +208,6 @@ def append_agent_resources_to_databricks_yml(project_root: Path, name: str):
 
 
 # --------------------------------------------------------------------------- #
-# agent_bricks_mas — scaffold a bootstrap job (imperative), NOT a DAB resource
-# --------------------------------------------------------------------------- #
-
-def scaffold_mas_bootstrap(project_root: Path, name: str, routes: list[str]):
-    """Agent Bricks Supervisor tiles are not DAB resources and cannot be created
-    by `bundle deploy`. We scaffold a bundle-declared job that runs a notebook
-    calling the Beta manage_mas SDK, plus a notebook stub. The resulting endpoint
-    is recorded in the manifest and can then be *consumed* by other agents."""
-    subs = {
-        "SUPERVISOR_NAME": name,
-        "PROJECT_NAME": get_project_name(project_root),
-        "ROUTES_PY_LIST": repr(routes),
-    }
-
-    # Bootstrap notebook (imperative provisioning).
-    nb_dir = project_root / "notebooks"
-    nb_dir.mkdir(exist_ok=True)
-    nb_path = nb_dir / f"bootstrap_supervisor_{name}.py"
-    if nb_path.exists():
-        sys.exit(f"ERROR: Bootstrap notebook already exists: {nb_path}")
-    nb_path.write_text(render("mas_bootstrap_notebook.py.tmpl", subs))
-    print(f"  Created: notebooks/bootstrap_supervisor_{name}.py (imperative, Beta SDK)")
-
-    # DAB-declared job that runs the bootstrap notebook. This IS declarative —
-    # what's non-declarative is the tile the notebook creates, which we document.
-    res_dir = project_root / "resources"
-    res_dir.mkdir(exist_ok=True)
-    job_path = res_dir / f"supervisor_{name}_bootstrap.yml"
-    if job_path.exists():
-        sys.exit(f"ERROR: Bootstrap job resource already exists: {job_path}")
-    job_path.write_text(render("mas_bootstrap_job.yml.tmpl", subs))
-    print(f"  Created: resources/supervisor_{name}_bootstrap.yml (bundle-declared job)")
-
-    # Wire the include into databricks.yml.
-    yml_path = project_root / "databricks.yml"
-    content = yml_path.read_text()
-    include_line = f"  - ./resources/supervisor_{name}_bootstrap.yml\n"
-    if include_line not in content:
-        content = re.sub(
-            r"(include:\n)",
-            r"\1" + include_line,
-            content,
-            count=1,
-        )
-        yml_path.write_text(content)
-        print(f"  Updated: databricks.yml (included bootstrap job resource)")
-
-
-# --------------------------------------------------------------------------- #
 # Manifest
 # --------------------------------------------------------------------------- #
 
@@ -284,16 +229,11 @@ def update_manifest(project_root: Path, name: str, sup_type: str, routes: list[s
     block = f"""
 
 # Supervisor agent (added via /add-supervisor)
-# type: custom | supervisor_api | agent_bricks_mas
+# type: custom | supervisor_api
 supervisor:
   type: {sup_type}
   name: {name}
   routes:{routes_yaml}"""
-    if sup_type == "agent_bricks_mas":
-        block += f"""
-  # Agent Bricks MAS tiles are provisioned imperatively (not by bundle deploy).
-  # After running the bootstrap job, record the managed endpoint name here:
-  endpoint: "" # TODO: set after notebooks/bootstrap_supervisor_{name}.py runs"""
 
     manifest_path.write_text(content + block + "\n")
     print("  Updated: .agentops-stacks/manifest.yml (supervisor block)")
@@ -315,7 +255,7 @@ def main():
                         help="Comma-separated sub-agent names this supervisor routes to")
     parser.add_argument("--from", dest="source", default=None,
                         help="Existing agent to base the App shape on "
-                             "(custom/supervisor_api only; default: first found)")
+                             "(default: first found)")
     parser.add_argument("--project-dir", default=".", help="Project root (default: cwd)")
     args = parser.parse_args()
 
@@ -339,20 +279,15 @@ def main():
         print(f"  NOTE: routes not matching a local agent (assumed managed "
               f"sub-agents — Genie/KA/endpoint): {unknown}")
 
-    if args.type in ("custom", "supervisor_api"):
-        if not existing:
-            sys.exit("ERROR: No existing agents to base the supervisor App on. "
-                     "Scaffold at least one agent first.")
-        source = args.source or existing[0]
-        if source not in existing:
-            sys.exit(f"ERROR: Source agent '{source}' not found. Available: {existing}")
-        print(f"Adding {args.type} supervisor '{args.name}' (App shape from '{source}')\n")
-        scaffold_supervisor_agent(project_root, args.name, args.type, source, routes)
-        append_agent_resources_to_databricks_yml(project_root, args.name)
-    else:  # agent_bricks_mas
-        print(f"Adding agent_bricks_mas supervisor '{args.name}' "
-              f"(bootstrap job + endpoint reference)\n")
-        scaffold_mas_bootstrap(project_root, args.name, routes)
+    if not existing:
+        sys.exit("ERROR: No existing agents to base the supervisor App on. "
+                 "Scaffold at least one agent first.")
+    source = args.source or existing[0]
+    if source not in existing:
+        sys.exit(f"ERROR: Source agent '{source}' not found. Available: {existing}")
+    print(f"Adding {args.type} supervisor '{args.name}' (App shape from '{source}')\n")
+    scaffold_supervisor_agent(project_root, args.name, args.type, source, routes)
+    append_agent_resources_to_databricks_yml(project_root, args.name)
 
     update_manifest(project_root, args.name, args.type, routes)
 
@@ -367,17 +302,11 @@ def _print_next_steps(name: str, sup_type: str):
         print(f"  2. Edit graph.py — confirm each route's sub-agent endpoint/Genie id")
         print(f"  3. Edit eval/gates.yml — add a routing-accuracy scorer for the supervisor")
         print(f"  4. databricks bundle validate -t dev && databricks bundle deploy -t dev")
-    elif sup_type == "supervisor_api":
+    else:  # supervisor_api
         print(f"  1. cd src/agents/{name} && uv sync   # picks up databricks-openai")
         print(f"  2. Ensure AI Gateway + the UC OTel-traces preview are enabled (Beta)")
         print(f"  3. Edit graph.py — set the sub-agent tool references (genie_space/serving_endpoint)")
         print(f"  4. databricks bundle validate -t dev && databricks bundle deploy -t dev")
-    else:
-        print(f"  1. Agent Bricks MAS is NOT created by bundle deploy (not a DAB resource).")
-        print(f"  2. databricks bundle deploy -t dev   # deploys the bootstrap JOB")
-        print(f"  3. Run the job (or notebooks/bootstrap_supervisor_{name}.py) to create the tile.")
-        print(f"  4. Record the resulting endpoint in .agentops-stacks/manifest.yml (supervisor.endpoint).")
-        print(f"  5. Other agents can then consume it as a serving_endpoint resource.")
 
 
 if __name__ == "__main__":

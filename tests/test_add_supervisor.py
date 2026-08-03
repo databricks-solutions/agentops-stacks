@@ -1,7 +1,7 @@
 """Tests for add_supervisor.py — the /add-supervisor engine.
 
 These build a minimal fake project tree (no Databricks CLI needed) and run the
-script's functions directly, asserting the three supervisor patterns wire into
+script's functions directly, asserting the two supervisor patterns wire into
 databricks.yml, the manifest, and the agent/App or bootstrap-job layout as
 designed. Complements test_create_project.py (which covers `bundle init`).
 """
@@ -175,7 +175,6 @@ def test_manifest_records_custom_supervisor(project):
     assert "type: custom" in m
     assert "name: router" in m
     assert "- rag" in m and "- support" in m
-    assert "endpoint:" not in m  # only MAS gets an endpoint field
 
 
 # --------------------------------------------------------------------------- #
@@ -194,39 +193,6 @@ def test_manifest_records_supervisor_api(project):
     addsup.update_manifest(project, "router", "supervisor_api", ["rag"])
     m = read(project, ".agentops-stacks/manifest.yml")
     assert "type: supervisor_api" in m
-
-
-# --------------------------------------------------------------------------- #
-# agent_bricks_mas — NOT a DAB resource; bootstrap job + notebook only.
-# --------------------------------------------------------------------------- #
-
-def test_mas_scaffolds_bootstrap_job_and_notebook(project):
-    addsup.scaffold_mas_bootstrap(project, "ops_mas", ["rag", "support"])
-    assert exists(project, "notebooks/bootstrap_supervisor_ops_mas.py")
-    assert exists(project, "resources/supervisor_ops_mas_bootstrap.yml")
-    # Bootstrap job is included in databricks.yml.
-    yml = read(project, "databricks.yml")
-    assert "./resources/supervisor_ops_mas_bootstrap.yml" in yml
-    # The job is a real DAB resource; the tile it creates is documented as not one.
-    job = read(project, "resources/supervisor_ops_mas_bootstrap.yml")
-    assert "jobs:" in job
-    assert "notebook_task" in job
-    nb = read(project, "notebooks/bootstrap_supervisor_ops_mas.py")
-    assert "not a Declarative Automation Bundle resource" in nb.lower() or \
-           "not a declarative automation bundle resource" in nb.lower()
-
-
-def test_mas_does_not_create_agent_app(project):
-    addsup.scaffold_mas_bootstrap(project, "ops_mas", ["rag"])
-    # MAS must NOT create an src/agents App — it's a managed tile.
-    assert not exists(project, "src/agents/ops_mas")
-
-
-def test_manifest_records_mas_with_endpoint_field(project):
-    addsup.update_manifest(project, "ops_mas", "agent_bricks_mas", ["rag"])
-    m = read(project, ".agentops-stacks/manifest.yml")
-    assert "type: agent_bricks_mas" in m
-    assert "endpoint:" in m  # placeholder to fill after provisioning
 
 
 # --------------------------------------------------------------------------- #
