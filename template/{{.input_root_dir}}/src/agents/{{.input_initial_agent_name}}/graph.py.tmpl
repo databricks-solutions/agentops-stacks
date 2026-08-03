@@ -97,10 +97,16 @@ async def get_async_checkpointer():
         from databricks_langchain import AsyncCheckpointSaver
 
         if _checkpointer is None:
-            _checkpointer = AsyncCheckpointSaver(autoscaling_endpoint=endpoint)
+            # Build and open on a local first; only publish to the module global
+            # after __aenter__() succeeds. Otherwise a transient failure (e.g. a
+            # scale-to-zero endpoint waking up) would leave a half-open object in
+            # _checkpointer that every later request reuses without ever opening
+            # its pool — permanently disabling memory until the process restarts.
+            candidate = AsyncCheckpointSaver(autoscaling_endpoint=endpoint)
             # Open the underlying Lakebase pool (what `async with` does under the
             # hood) and keep it open for the process lifetime.
-            await _checkpointer.__aenter__()
+            await candidate.__aenter__()
+            _checkpointer = candidate
         if not _checkpointer_ready:
             await _checkpointer.setup()
             _checkpointer_ready = True
@@ -138,12 +144,18 @@ async def get_async_store():
 
         embedding_endpoint = os.environ.get("DATABRICKS_EMBEDDING_ENDPOINT", "databricks-gte-large-en")
         if _store is None:
-            _store = AsyncDatabricksStore(
+            # Build and open on a local first; only publish to the module global
+            # after __aenter__() succeeds. Otherwise a transient failure (e.g. a
+            # scale-to-zero endpoint waking up) would leave a half-open object in
+            # _store that every later request reuses without ever opening its
+            # pool — permanently disabling memory until the process restarts.
+            candidate = AsyncDatabricksStore(
                 autoscaling_endpoint=endpoint,
                 embedding_endpoint=embedding_endpoint,
                 embedding_dims=1024,  # databricks-gte-large-en
             )
-            await _store.__aenter__()
+            await candidate.__aenter__()
+            _store = candidate
         if not _store_ready:
             await _store.setup()
             _store_ready = True
