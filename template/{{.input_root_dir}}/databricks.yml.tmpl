@@ -72,7 +72,13 @@ targets:
       catalog: {{ .input_project_name }}_staging
     run_as:
       user_name: ${workspace.current_user.userName}
-
+{{ if (eq .input_use_lakebase "yes") }}    resources:
+      postgres_projects:
+        memory:
+          # Keep the memory endpoint always-on in staging to avoid cold-start latency.
+          default_endpoint_settings:
+            no_suspension: true
+{{ end }}
   prod:
     mode: production
     workspace:
@@ -81,3 +87,10 @@ targets:
       catalog: {{ .input_project_name }}_prod
     run_as:
       user_name: ${workspace.current_user.userName}
+{{ if (eq .input_use_lakebase "yes") }}    resources:
+      postgres_projects:
+        memory:
+          # Keep the memory endpoint always-on in prod to avoid cold-start latency.
+          default_endpoint_settings:
+            no_suspension: true
+{{ end }}

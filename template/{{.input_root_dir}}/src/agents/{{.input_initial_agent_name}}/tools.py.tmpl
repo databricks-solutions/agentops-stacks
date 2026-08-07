@@ -39,13 +39,13 @@ def memory_tools() -> list:
     @tool
     async def get_user_memory(query: str, config: RunnableConfig) -> str:
         """Search for relevant information about the user from long-term memory."""
-        user_id = config.get("configurable", {}).get("user_id")
-        if not user_id:
-            return "Memory not available - no user_id provided."
-
         store: BaseStore | None = config.get("configurable", {}).get("store")
         if not store:
             return "Memory not available - store not configured."
+
+        user_id = config.get("configurable", {}).get("user_id")
+        if not user_id:
+            return "Memory not available - no user_id provided."
 
         namespace = ("user_memories", user_id.replace(".", "-"))
         results = await store.asearch(namespace, query=query, limit=5)
@@ -61,13 +61,13 @@ def memory_tools() -> list:
 
         memory_data_json must be a JSON object (e.g. '{"favorite_color": "blue"}').
         """
-        user_id = config.get("configurable", {}).get("user_id")
-        if not user_id:
-            return "Cannot save memory - no user_id provided."
-
         store: BaseStore | None = config.get("configurable", {}).get("store")
         if not store:
             return "Cannot save memory - store not configured."
+
+        user_id = config.get("configurable", {}).get("user_id")
+        if not user_id:
+            return "Cannot save memory - no user_id provided."
 
         namespace = ("user_memories", user_id.replace(".", "-"))
         try:
@@ -82,13 +82,13 @@ def memory_tools() -> list:
     @tool
     async def delete_user_memory(memory_key: str, config: RunnableConfig) -> str:
         """Delete a specific memory from the user's long-term memory."""
-        user_id = config.get("configurable", {}).get("user_id")
-        if not user_id:
-            return "Cannot delete memory - no user_id provided."
-
         store: BaseStore | None = config.get("configurable", {}).get("store")
         if not store:
             return "Cannot delete memory - store not configured."
+
+        user_id = config.get("configurable", {}).get("user_id")
+        if not user_id:
+            return "Cannot delete memory - no user_id provided."
 
         namespace = ("user_memories", user_id.replace(".", "-"))
         await store.adelete(namespace, memory_key)
