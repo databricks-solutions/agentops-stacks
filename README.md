@@ -8,7 +8,7 @@ agentops-stacks generates the production envelope for a multi-agent LangGraph pr
 
 - Three-environment Declarative Automation Bundle (dev / staging / prod) with `direct` deployment engine
 - Per-agent LangGraph graph served as a Databricks App via MLflow AgentServer — one App resource per agent
-- Shared components scaffolded on demand: Vector Search (RAG retrieval), Lakebase (Postgres conversation memory), UC function tools
+- Shared components scaffolded on demand: Vector Search (RAG retrieval), Lakebase (Autoscaling Postgres agent memory — short-term conversation checkpointer and/or long-term per-user semantic store), UC function tools
 - One Unity Catalog catalog per environment, plus schemas, volumes, and per-agent MLflow experiments
 - CI/CD wiring for one of four platforms — GitHub Actions, GitHub Actions for GHES, GitLab, or Azure DevOps — with PR validation, staging deploy on merge to `main`, and prod deploy on `v*` tag
 - Cloud auth (Azure service principal; AWS and GCP tokens) wired into the CI/CD workflows

@@ -6,11 +6,15 @@ env:
   - name: SCHEMA
     value: "${var.schema}"
   - name: LLM_ENDPOINT
-    value: "databricks-claude-sonnet-4"
-{{ if (eq .input_use_lakebase "yes") }}  - name: LAKEBASE_INSTANCE
-    value: "" # TODO: Set your Lakebase instance name
-  - name: LAKEBASE_HOST
-    value: "" # TODO: Set your Lakebase instance read-write DNS
-  - name: LAKEBASE_DB
-    value: "default"
+    value: "databricks-claude-sonnet-4-5"
+{{ if (eq .input_use_lakebase "yes") }}  - name: LAKEBASE_ENDPOINT
+    # Prefilled with the derivable path to the auto-created read-write endpoint.
+    # `bundle deploy` creates the memory project with a default `production` branch
+    # and a primary read-write endpoint named `primary` — every path segment below
+    # is fixed by the project slug, so this needs no editing in the common case.
+    # If you renamed the branch or added a custom endpoint, verify the exact path with:
+    #   databricks postgres list-endpoints projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production
+    value: "projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production/endpoints/primary"
+{{ end }}{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "long_term") (eq .input_memory_type "both"))) }}  - name: DATABRICKS_EMBEDDING_ENDPOINT
+    value: "databricks-gte-large-en" # Embedding endpoint for long-term memory semantic search (1024 dims)
 {{ end }}
