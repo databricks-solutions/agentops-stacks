@@ -6,7 +6,7 @@ env:
   - name: SCHEMA
     value: "${var.schema}"
   - name: LLM_ENDPOINT
-    value: "databricks-claude-sonnet-4"
+    value: "databricks-claude-sonnet-4-5"
 {{ if (eq .input_use_lakebase "yes") }}  - name: LAKEBASE_INSTANCE
     value: "" # TODO: Set your Lakebase instance name
   - name: LAKEBASE_HOST

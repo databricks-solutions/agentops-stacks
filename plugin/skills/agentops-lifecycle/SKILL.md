@@ -231,7 +231,7 @@ from langgraph.prebuilt import ToolNode
 from databricks_langchain import ChatDatabricks
 from tools import get_tools
 
-LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4-5")
 
 def agent_node(state: MessagesState) -> dict:
     tools = get_tools()

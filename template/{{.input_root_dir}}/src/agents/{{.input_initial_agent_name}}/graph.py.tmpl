@@ -17,7 +17,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 {{ end }}
 
 logger = logging.getLogger(__name__)
-LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4-5")
 
 {{ if (eq .input_use_vector_search "yes") }}
 # --- Vector Search retriever ---

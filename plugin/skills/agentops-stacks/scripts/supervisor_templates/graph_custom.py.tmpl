@@ -19,14 +19,13 @@ Edit `build_sub_agents()` to point each route at its real backend.
 import os
 import logging
 
-from langgraph.graph import MessagesState
 from langgraph.prebuilt import create_react_agent
 from langgraph_supervisor import create_supervisor
 from databricks_langchain import ChatDatabricks
 
 logger = logging.getLogger(__name__)
 
-LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4-5")
 
 # Sub-agent routes recorded at scaffold time. Each name becomes a managed
 # member of the supervisor. Confirm/adjust the backing for each below.
@@ -86,7 +85,10 @@ def build_graph():
         model=supervisor_llm,
         prompt=SUPERVISOR_PROMPT,
         output_mode="full_history",
-        state_schema=MessagesState,
+        # No state_schema override. create_supervisor builds on the prebuilt
+        # ReAct agent state, which requires a `remaining_steps` key; passing
+        # MessagesState raises "Missing required key(s) {'remaining_steps'}" at
+        # import under langgraph 1.x (langgraph-supervisor 0.0.31 / langgraph 1.2).
     )
 
 

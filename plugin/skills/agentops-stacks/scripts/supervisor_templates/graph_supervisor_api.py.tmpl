@@ -27,7 +27,7 @@ from langgraph.graph import START, END, StateGraph, MessagesState
 
 logger = logging.getLogger(__name__)
 
-SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "databricks-claude-sonnet-4")
+SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "databricks-claude-sonnet-4-5")
 
 # Sub-agent routes recorded at scaffold time. Each becomes a tool the managed
 # supervisor may call. Fill in the concrete reference for each route below.

@@ -210,3 +210,84 @@ def test_dep_not_duplicated(project):
     addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
     py = read(project, "src/agents/router/pyproject.toml")
     assert py.count("langgraph-supervisor") == 1
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes (PR #33) — runtime/startup blockers, caught structurally here
+# and validated at import out-of-band (see the PR's testing notes).
+# --------------------------------------------------------------------------- #
+
+def test_custom_graph_drops_messages_state_schema(project):
+    # Blocker 1: create_supervisor(state_schema=MessagesState) raises
+    # "Missing required key(s) {'remaining_steps'}" at import under langgraph 1.x.
+    addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
+    graph = read(project, "src/agents/router/graph.py")
+    assert "state_schema=MessagesState" not in graph
+    assert "from langgraph.graph import MessagesState" not in graph
+    assert "create_supervisor(" in graph
+
+
+def test_templates_use_supported_model_endpoint(project):
+    # Blocker 2: databricks-claude-sonnet-4 is deprecated and 400s on every call.
+    for sup_type in ("custom", "supervisor_api"):
+        addsup.scaffold_supervisor_agent(project, f"r_{sup_type}", sup_type, "rag", ["rag"])
+        graph = read(project, f"src/agents/r_{sup_type}/graph.py")
+        assert "databricks-claude-sonnet-4-5" in graph
+        assert '"databricks-claude-sonnet-4"' not in graph  # bare deprecated id gone
+
+
+def test_empty_routes_rejected(project, monkeypatch):
+    # Empty --routes scaffolds create_supervisor([]) / an empty managed tool
+    # list, which can't start. Reject at the CLI instead of scaffolding it.
+    monkeypatch.setattr(
+        sys, "argv",
+        ["add_supervisor", "--name", "router", "--type", "custom",
+         "--routes", "", "--project-dir", str(project)],
+    )
+    with pytest.raises(SystemExit):
+        addsup.main()
+    assert not exists(project, "src/agents/router")  # nothing scaffolded
+
+
+def test_rename_is_token_aware():
+    # Raw str.replace corrupts identifiers that merely contain the source name
+    # (storage -> stoROUTERe); underscored compounds (proj_rag_eval) must rename.
+    out = addsup._rename_identifier(
+        "storage myrag rag rag_eval proj_rag_eval", "rag", "router")
+    assert out == "storage myrag router router_eval proj_router_eval"
+
+
+def test_rename_does_not_corrupt_copied_files(project):
+    # Integration: a copied file whose text contains the source name as a
+    # substring survives the scaffold rename intact.
+    (project / "src" / "agents" / "rag" / "notes.py").write_text(
+        "storage_path = '/tmp'  # rag notes\n")
+    addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
+    notes = read(project, "src/agents/router/notes.py")
+    assert "storage_path" in notes       # not corrupted to stoROUTERe_path
+    assert "# router notes" in notes     # standalone token still renamed
+
+
+def test_deps_added_for_alternate_langgraph_pin(tmp_path):
+    # The dep insert must not silently no-op on a non->= langgraph pin shape.
+    for i, pin in enumerate(('"langgraph==1.1.0",', '"langgraph~=1.1",', '"langgraph",')):
+        py = tmp_path / f"pp_{i}.toml"
+        py.write_text(f"[project]\ndependencies = [\n    {pin}\n]\n")
+        addsup._add_supervisor_deps(py, "custom")
+        assert "langgraph-supervisor>=0.0.31" in py.read_text()
+
+
+def test_deps_warn_when_no_anchor(tmp_path, capsys):
+    # No langgraph pin and no dependencies list — warn, don't silently drop it.
+    py = tmp_path / "pp.toml"
+    py.write_text("[project]\nname = 'x'\n")
+    addsup._add_supervisor_deps(py, "custom")
+    assert "WARN" in capsys.readouterr().out
+    assert "langgraph-supervisor" not in py.read_text()
+
+
+def test_supervisor_api_dep_floor_guarantees_client(project):
+    # databricks-openai floor must be >=0.7.0, where DatabricksOpenAI (used by
+    # the supervisor_api graph) first ships; earlier releases ImportError.
+    addsup.scaffold_supervisor_agent(project, "router", "supervisor_api", "rag", ["rag"])
+    assert "databricks-openai>=0.7.0" in read(project, "src/agents/router/pyproject.toml")

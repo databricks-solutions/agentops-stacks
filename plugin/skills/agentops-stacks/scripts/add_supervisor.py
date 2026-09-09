@@ -91,6 +91,15 @@ def render(template_name: str, subs: dict) -> str:
     return raw
 
 
+def _rename_identifier(text: str, source: str, target: str) -> str:
+    """Rename agent identifier `source` -> `target`, matching it only as a whole
+    token. Underscores and other separators count as boundaries, so source `rag`
+    rewrites `rag`, `rag_eval`, and `proj_rag_eval` but never touches substrings
+    like `storage` or `myrag`. A raw str.replace corrupts any identifier that
+    merely contains the source name (e.g. `storage` -> `stoROUTERe`)."""
+    return re.sub(rf"(?<![A-Za-z0-9]){re.escape(source)}(?![A-Za-z0-9])", target, text)
+
+
 # --------------------------------------------------------------------------- #
 # custom / supervisor_api — scaffold the supervisor as an agent App
 # --------------------------------------------------------------------------- #
@@ -120,7 +129,7 @@ def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
             content = filepath.read_text()
         except UnicodeDecodeError:
             continue
-        updated = content.replace(source, name)
+        updated = _rename_identifier(content, source, name)
         if updated != content:
             filepath.write_text(updated)
 
@@ -149,24 +158,50 @@ def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
 
 
 def _add_supervisor_deps(pyproject: Path, sup_type: str):
-    """Add the supervisor's runtime dependency to pyproject.toml if missing."""
+    """Add the supervisor's runtime dependency to pyproject.toml if missing.
+
+    Pins are the versions this pattern is validated against:
+      - langgraph-supervisor 0.0.31 (which transitively holds langgraph
+        >=1.0.2,<2.0.0, keeping create_react_agent available).
+      - databricks-openai 0.7.0+ — the floor where the DatabricksOpenAI client
+        first ships; earlier releases only expose the tool helpers, so the
+        supervisor_api graph would ImportError on `from databricks_openai
+        import DatabricksOpenAI`.
+    """
     if not pyproject.exists():
+        print(f"  WARN: no pyproject.toml at {pyproject} — add the supervisor "
+              f"dependency manually before `uv sync`.")
         return
     content = pyproject.read_text()
-    dep = ('    "langgraph-supervisor>=0.0.5",'
+    dep = ('    "langgraph-supervisor>=0.0.31,<0.1",'
            if sup_type == "custom"
-           else '    "databricks-openai>=0.4.0",')
-    marker = dep.strip().split(">=")[0].strip('"')
+           else '    "databricks-openai>=0.7.0",')
+    marker = dep.split('"')[1].split(">=")[0]
     if marker in content:
         return
-    # Insert right after the langgraph pin, which every agent has.
-    content = re.sub(
-        r'(\n\s*"langgraph>=[^"]+",)',
+    # Insert after the existing langgraph pin in any version form (>=, ==, ~=,
+    # extras, or bare). The name is anchored so it never matches a sibling like
+    # langgraph-supervisor or langgraph-checkpoint-postgres.
+    new_content, n = re.subn(
+        r'(\n[ \t]*"langgraph(?:\[[^\]]*\])?(?:[<>=!~][^"]*)?",)',
         r"\1\n" + dep,
         content,
         count=1,
     )
-    pyproject.write_text(content)
+    if n == 0:
+        # No langgraph pin in the expected shape — fall back to the head of the
+        # dependencies array so the dep still lands.
+        new_content, n = re.subn(
+            r'(dependencies\s*=\s*\[)',
+            r"\1\n" + dep,
+            content,
+            count=1,
+        )
+    if n == 0:
+        print(f"  WARN: couldn't find a langgraph pin or a dependencies list in "
+              f"{pyproject}. Add {dep.strip()} manually before `uv sync`.")
+        return
+    pyproject.write_text(new_content)
 
 
 def append_agent_resources_to_databricks_yml(project_root: Path, name: str):
@@ -264,6 +299,11 @@ def main():
                  "contain only lowercase letters, digits, and underscores (min 3 chars).")
 
     routes = [r.strip() for r in args.routes.split(",") if r.strip()]
+    if not routes:
+        sys.exit("ERROR: --routes must name at least one sub-agent to route to "
+                 "(comma-separated). A supervisor with no routes scaffolds an "
+                 "empty create_supervisor([]) / managed tool list, which fails "
+                 "to start. Example: --routes rag,support")
 
     project_root = find_project_root(Path(args.project_dir))
     print(f"Project root: {project_root}")
