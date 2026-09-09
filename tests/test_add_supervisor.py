@@ -1,14 +1,13 @@
 """Tests for add_supervisor.py — the /add-supervisor engine.
 
 These build a minimal fake project tree (no Databricks CLI needed) and run the
-script's functions directly, asserting the two supervisor patterns wire into
-databricks.yml, the manifest, and the agent/App or bootstrap-job layout as
-designed. Complements test_create_project.py (which covers `bundle init`).
+script's functions directly, asserting the supervisor wires into databricks.yml,
+the manifest, and the agent/App layout as designed. Complements
+test_create_project.py (which covers `bundle init`).
 """
 
 import importlib.util
 import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -178,24 +177,6 @@ def test_manifest_records_custom_supervisor(project):
 
 
 # --------------------------------------------------------------------------- #
-# supervisor_api
-# --------------------------------------------------------------------------- #
-
-def test_supervisor_api_graph_and_dep(project):
-    addsup.scaffold_supervisor_agent(project, "router", "supervisor_api", "rag", ["rag"])
-    graph = read(project, "src/agents/router/graph.py")
-    assert "DatabricksOpenAI" in graph
-    assert "responses.create" in graph
-    assert "databricks-openai" in read(project, "src/agents/router/pyproject.toml")
-
-
-def test_manifest_records_supervisor_api(project):
-    addsup.update_manifest(project, "router", "supervisor_api", ["rag"])
-    m = read(project, ".agentops-stacks/manifest.yml")
-    assert "type: supervisor_api" in m
-
-
-# --------------------------------------------------------------------------- #
 # Guards
 # --------------------------------------------------------------------------- #
 
@@ -227,13 +208,12 @@ def test_custom_graph_drops_messages_state_schema(project):
     assert "create_supervisor(" in graph
 
 
-def test_templates_use_supported_model_endpoint(project):
+def test_template_uses_supported_model_endpoint(project):
     # Blocker 2: databricks-claude-sonnet-4 is deprecated and 400s on every call.
-    for sup_type in ("custom", "supervisor_api"):
-        addsup.scaffold_supervisor_agent(project, f"r_{sup_type}", sup_type, "rag", ["rag"])
-        graph = read(project, f"src/agents/r_{sup_type}/graph.py")
-        assert "databricks-claude-sonnet-4-5" in graph
-        assert '"databricks-claude-sonnet-4"' not in graph  # bare deprecated id gone
+    addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
+    graph = read(project, "src/agents/router/graph.py")
+    assert "databricks-claude-sonnet-4-5" in graph
+    assert '"databricks-claude-sonnet-4"' not in graph  # bare deprecated id gone
 
 
 def test_empty_routes_rejected(project, monkeypatch):
@@ -273,7 +253,7 @@ def test_deps_added_for_alternate_langgraph_pin(tmp_path):
     for i, pin in enumerate(('"langgraph==1.1.0",', '"langgraph~=1.1",', '"langgraph",')):
         py = tmp_path / f"pp_{i}.toml"
         py.write_text(f"[project]\ndependencies = [\n    {pin}\n]\n")
-        addsup._add_supervisor_deps(py, "custom")
+        addsup._add_supervisor_deps(py)
         assert "langgraph-supervisor>=0.0.31" in py.read_text()
 
 
@@ -281,13 +261,19 @@ def test_deps_warn_when_no_anchor(tmp_path, capsys):
     # No langgraph pin and no dependencies list — warn, don't silently drop it.
     py = tmp_path / "pp.toml"
     py.write_text("[project]\nname = 'x'\n")
-    addsup._add_supervisor_deps(py, "custom")
+    addsup._add_supervisor_deps(py)
     assert "WARN" in capsys.readouterr().out
     assert "langgraph-supervisor" not in py.read_text()
 
 
-def test_supervisor_api_dep_floor_guarantees_client(project):
-    # databricks-openai floor must be >=0.7.0, where DatabricksOpenAI (used by
-    # the supervisor_api graph) first ships; earlier releases ImportError.
-    addsup.scaffold_supervisor_agent(project, "router", "supervisor_api", "rag", ["rag"])
-    assert "databricks-openai>=0.7.0" in read(project, "src/agents/router/pyproject.toml")
+def test_invalid_type_rejected(project, monkeypatch):
+    # Only `custom` remains valid; the removed supervisor_api must be rejected by
+    # argparse rather than scaffolding anything.
+    monkeypatch.setattr(
+        sys, "argv",
+        ["add_supervisor", "--name", "router", "--type", "supervisor_api",
+         "--routes", "rag", "--project-dir", str(project)],
+    )
+    with pytest.raises(SystemExit):
+        addsup.main()
+    assert not exists(project, "src/agents/router")

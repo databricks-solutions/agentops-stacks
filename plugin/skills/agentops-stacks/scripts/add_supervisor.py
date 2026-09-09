@@ -2,28 +2,25 @@
 """Add a supervisor agent to an existing AgentOps Stacks project.
 
 A supervisor routes user queries across the project's existing agents (and
-other managed sub-agents such as Genie spaces or Knowledge Assistants). This
-script supports the two supervisor patterns AgentOps Stacks recognizes, which
-differ in *who owns the routing loop*:
+other managed sub-agents such as Genie spaces or Knowledge Assistants).
 
-  custom          A hand-written LangGraph supervisor graph. It is just another
-                  agent under src/agents/<name>/ — served as a Databricks App
-                  via MLflow AgentServer, fully declared in databricks.yml, and
-                  gated by the same CI eval loop as every other agent. GA.
+The supervisor is a **custom LangGraph** agent: a hand-written supervisor graph
+that is just another agent under src/agents/<name>/ — served as a Databricks App
+via MLflow AgentServer, fully declared in databricks.yml, and gated by the same
+CI eval loop as every other agent. GA.
 
-  supervisor_api  The Databricks-managed supervisor loop (Responses API),
-                  packaged as a thin wrapper App. Same declarable App shape as
-                  `custom`; Databricks owns the routing loop. Beta — requires
-                  AI Gateway + the UC OTel-traces preview enabled.
+(A Databricks-managed "Supervisor API" pattern was considered but removed: that
+API is deprecated and reaches end of life on 2026-09-30, and Databricks' own
+guidance is to build multi-agent systems as custom agents on Databricks Apps —
+which is exactly this pattern.)
 
-Both patterns create the supervisor by cloning the agent scaffold shape
-(mirroring add_agent.py) and swapping in a supervisor graph, so it is a
-first-class DAB citizen and CI's `detect_patterns -> eval_gate` picks it up with
-zero workflow changes.
+The supervisor is created by cloning the agent scaffold shape (mirroring
+add_agent.py) and swapping in a supervisor graph, so it is a first-class DAB
+citizen and CI's `detect_patterns -> eval_gate` picks it up with zero workflow
+changes.
 
 Usage:
-    python add_supervisor.py --name router --type custom --routes rag,support
-    python add_supervisor.py --name router --type supervisor_api --routes rag,support
+    python add_supervisor.py --name router --routes rag,support
 
 Recommended: use the /add-supervisor skill, which runs the Selection Matrix
 conversationally and then calls this script.
@@ -36,7 +33,11 @@ import sys
 from pathlib import Path
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,}$")
-VALID_TYPES = {"custom", "supervisor_api"}
+# Only `custom` (hand-written LangGraph) remains. The managed "Supervisor API"
+# pattern was removed — that API is deprecated (EOL 2026-09-30) and Databricks
+# recommends custom agents on Apps instead. `type` is kept in the manifest
+# contract so a future GA managed pattern can be added without a schema change.
+VALID_TYPES = {"custom"}
 
 # Templates live next to this script so they ship with the plugin and don't
 # collide with the DAB `template/` tree (which is Go-templated by bundle init).
@@ -101,7 +102,7 @@ def _rename_identifier(text: str, source: str, target: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# custom / supervisor_api — scaffold the supervisor as an agent App
+# scaffold the supervisor as an agent App
 # --------------------------------------------------------------------------- #
 
 def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
@@ -140,9 +141,7 @@ def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
         "ROUTES_COMMENT": ", ".join(routes) if routes else "(none yet — edit graph.py)",
     }
 
-    graph_tmpl = ("graph_custom.py.tmpl" if sup_type == "custom"
-                  else "graph_supervisor_api.py.tmpl")
-    (new_dir / "graph.py").write_text(render(graph_tmpl, subs))
+    (new_dir / "graph.py").write_text(render("graph_custom.py.tmpl", subs))
     (new_dir / "tools.py").write_text(render("tools_supervisor.py.tmpl", subs))
     # Overwrite agent.py with the supervisor handler. The source agent's agent.py
     # may import graph symbols (e.g. get_async_checkpointer when the base agent
@@ -151,31 +150,25 @@ def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
     (new_dir / "agent.py").write_text(render("agent_supervisor.py.tmpl", subs))
 
     # Merge extra deps into the supervisor's pyproject.toml.
-    _add_supervisor_deps(new_dir / "pyproject.toml", sup_type)
+    _add_supervisor_deps(new_dir / "pyproject.toml")
 
     print(f"  Created: src/agents/{name}/ (supervisor, type={sup_type})")
     print(f"           graph.py routes to: {subs['ROUTES_COMMENT']}")
 
 
-def _add_supervisor_deps(pyproject: Path, sup_type: str):
-    """Add the supervisor's runtime dependency to pyproject.toml if missing.
+def _add_supervisor_deps(pyproject: Path):
+    """Add the supervisor's runtime dependency (langgraph-supervisor) to
+    pyproject.toml if missing.
 
-    Pins are the versions this pattern is validated against:
-      - langgraph-supervisor 0.0.31 (which transitively holds langgraph
-        >=1.0.2,<2.0.0, keeping create_react_agent available).
-      - databricks-openai 0.7.0+ — the floor where the DatabricksOpenAI client
-        first ships; earlier releases only expose the tool helpers, so the
-        supervisor_api graph would ImportError on `from databricks_openai
-        import DatabricksOpenAI`.
+    Pinned to the validated version: langgraph-supervisor 0.0.31 transitively
+    holds langgraph >=1.0.2,<2.0.0, keeping create_react_agent available.
     """
     if not pyproject.exists():
         print(f"  WARN: no pyproject.toml at {pyproject} — add the supervisor "
               f"dependency manually before `uv sync`.")
         return
     content = pyproject.read_text()
-    dep = ('    "langgraph-supervisor>=0.0.31,<0.1",'
-           if sup_type == "custom"
-           else '    "databricks-openai>=0.7.0",')
+    dep = '    "langgraph-supervisor>=0.0.31,<0.1",'
     marker = dep.split('"')[1].split(">=")[0]
     if marker in content:
         return
@@ -264,7 +257,7 @@ def update_manifest(project_root: Path, name: str, sup_type: str, routes: list[s
     block = f"""
 
 # Supervisor agent (added via /add-supervisor)
-# type: custom | supervisor_api
+# type: custom
 supervisor:
   type: {sup_type}
   name: {name}
@@ -284,8 +277,8 @@ def main():
     )
     parser.add_argument("--name", required=True,
                         help="Supervisor agent name (lowercase, underscores, min 3 chars)")
-    parser.add_argument("--type", required=True, choices=sorted(VALID_TYPES),
-                        help="Supervisor pattern (see the Selection Matrix in SKILL.md)")
+    parser.add_argument("--type", default="custom", choices=sorted(VALID_TYPES),
+                        help="Supervisor pattern (currently only 'custom'; default: custom)")
     parser.add_argument("--routes", default="",
                         help="Comma-separated sub-agent names this supervisor routes to")
     parser.add_argument("--from", dest="source", default=None,
@@ -332,21 +325,15 @@ def main():
     update_manifest(project_root, args.name, args.type, routes)
 
     print(f"\nDone. Supervisor '{args.name}' ({args.type}) added.")
-    _print_next_steps(args.name, args.type)
+    _print_next_steps(args.name)
 
 
-def _print_next_steps(name: str, sup_type: str):
+def _print_next_steps(name: str):
     print("\nNext steps:")
-    if sup_type == "custom":
-        print(f"  1. cd src/agents/{name} && uv sync   # picks up langgraph-supervisor")
-        print(f"  2. Edit graph.py — confirm each route's sub-agent endpoint/Genie id")
-        print(f"  3. Edit eval/gates.yml — add a routing-accuracy scorer for the supervisor")
-        print(f"  4. databricks bundle validate -t dev && databricks bundle deploy -t dev")
-    else:  # supervisor_api
-        print(f"  1. cd src/agents/{name} && uv sync   # picks up databricks-openai")
-        print(f"  2. Ensure AI Gateway + the UC OTel-traces preview are enabled (Beta)")
-        print(f"  3. Edit graph.py — set the sub-agent tool references (genie_space/serving_endpoint)")
-        print(f"  4. databricks bundle validate -t dev && databricks bundle deploy -t dev")
+    print(f"  1. cd src/agents/{name} && uv sync   # picks up langgraph-supervisor")
+    print("  2. Edit graph.py — confirm each route's sub-agent endpoint/Genie id")
+    print("  3. Edit eval/gates.yml — add a routing-accuracy scorer for the supervisor")
+    print("  4. databricks bundle validate -t dev && databricks bundle deploy -t dev")
 
 
 if __name__ == "__main__":

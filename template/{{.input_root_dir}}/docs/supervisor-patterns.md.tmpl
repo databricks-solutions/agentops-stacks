@@ -2,38 +2,24 @@
 
 A supervisor agent routes user queries across your project's agents. When you
 have more than one agent, add a supervisor with the `/add-supervisor` skill (or
-`plugin/skills/agentops-stacks/scripts/add_supervisor.py`).
+`plugin/skills/agentops-stacks/scripts/add_supervisor.py`). It is scaffolded as
+an agent App, so it deploys and is eval-gated like any other agent.
 
-There are two supervisor patterns. They differ in **who owns the routing
-loop** — pick by best fit, not habit. Both are first-class DAB citizens: the
-supervisor is scaffolded as an agent App, so it deploys and is eval-gated like
-any other agent.
+## First: is a supervisor warranted?
 
-## Choosing a pattern
+Multi-agent orchestration is easy to reach for too early. Prefer the simplest
+shape that works:
 
-| | **Custom LangGraph** | **Supervisor API** |
-|---|---|---|
-| Routing loop owned by | Your code | Databricks (managed) |
-| Artifact in the bundle | Agent App under `src/agents/` | Wrapper App under `src/agents/` |
-| Declarable in `databricks.yml`? | Yes, natively | Yes, as a wrapper App |
-| Gated by the CI eval gate? | Yes | Yes |
-| Status | GA | Beta |
+- **One real specialist** → keep the single agent; no supervisor.
+- **Fixed, known order of steps** → a **deterministic router / sequential chain**
+  in one agent is simpler, cheaper, and easier to evaluate.
+- **Routing that genuinely depends on the request** (intent classification across
+  ≥2 non-overlapping specialists, dynamic hand-off) → a supervisor is warranted.
 
-**Default: Custom LangGraph.** It is GA, fully DAB-declarable, and gated on real
-MLflow eval end-to-end. Choose Supervisor API only when its specific advantage —
-a managed loop with minimal code — is what you want.
+Using a supervisor when a sequential chain would do adds orchestration overhead,
+debugging complexity, and the risk of loops between agents.
 
-### Decision matrix (first gate that fires wins)
-
-1. **Lifecycle parity non-negotiable** (same DAB + eval gate + promotion, GA,
-   fully in `databricks.yml`) → **Custom**.
-2. **Orchestration control** (custom state, conditional routing, guardrails,
-   HITL, Lakebase checkpointer, retry policy) → **Custom**.
-3. **Managed loop, no custom graph** (code-first, per-request model choice, and
-   an admin can enable AI Gateway + the UC OTel-traces preview) → **Supervisor API**.
-4. **Override**: HIPAA / enhanced-security or GA-certainty → **Custom**.
-
-## Pattern 1 — Custom LangGraph supervisor (GA, default)
+## The pattern — custom LangGraph (GA)
 
 A hand-written supervisor graph (via `langgraph-supervisor`'s `create_supervisor`
 or a raw `StateGraph` router). It is **just another agent**: served as a
@@ -49,37 +35,38 @@ Scaffolded files: `src/agents/<name>/graph.py` (supervisor), `agent.py`
 (stateless supervisor handler), `tools.py`, `eval/` (inherited), plus an app +
 experiment in `databricks.yml`.
 
-## Pattern 2 — Supervisor API (Beta)
+> **Why not a managed supervisor?** Databricks' managed "Supervisor API" is
+> **deprecated (end of life 2026-09-30)**, and its own replacement guidance is to
+> build multi-agent systems as **custom agents on Databricks Apps** — this
+> pattern. (The Agent Bricks managed "Supervisor Agent" is also on a sunset
+> path.) So the durable choice is custom LangGraph.
 
-The Databricks-managed supervisor loop (`databricks-openai` Responses API),
-wrapped in a one-node LangGraph so it serves through the same App path. You
-declare sub-agents as tools; the AI Gateway runs the loop and picks the model
-per request.
+## Evaluating a supervisor
 
-- **You write no routing graph.** Databricks owns the loop.
-- **Prereqs**: AI Gateway enabled; "Store OpenTelemetry traces in Unity Catalog"
-  preview enabled; caller has UC access to every sub-agent.
-- **Limits**: 30-min background cap; no `stream=True`+`background=True`; no
-  durable recovery; web search restricted under HIPAA.
-- **Deploy**: `databricks bundle deploy -t dev` (it's still a wrapper App).
+Routing decisions are a **structured** output — evaluate them **programmatically**
+(accuracy / F1 / a confusion matrix over labeled expected-route examples), not
+with an LLM judge. Add a routing scorer to the supervisor's `eval/gates.yml`; a
+gate that only checks safety and answer quality doesn't test the supervisor's
+core job. Evaluate the whole chain end-to-end, not just the final answer.
 
 ## Manifest contract
 
-Whichever pattern you pick, it is recorded in `.agentops-stacks/manifest.yml`:
+The supervisor is recorded in `.agentops-stacks/manifest.yml`:
 
 ```yaml
 supervisor:
-  type: custom | supervisor_api
+  type: custom
   name: <supervisor_agent_name>
   routes: [agent_a, agent_b]
 ```
 
-CI and tooling read this contract without needing to know how the supervisor
-was created.
+CI and tooling read this contract without needing to know how the supervisor was
+created. (`type` is kept so a future GA managed pattern can be added.)
 
 ## Security posture
 
-- **Custom** — you own guardrails; scope sub-agent auth via MLflow `resources`;
-  least-privilege per endpoint. In workspace boundary.
-- **Supervisor API** — authorization respects the caller's UC permissions;
-  traces to UC (OTel preview); web search restricted under HIPAA; Beta.
+- You own guardrails; scope each sub-agent's auth via MLflow `resources`,
+  least-privilege per endpoint.
+- Flow the **end user's identity** through to sub-agents (on-behalf-of-user, or
+  an explicit non-LLM-controlled ID filter — never from model output).
+- In the workspace boundary.

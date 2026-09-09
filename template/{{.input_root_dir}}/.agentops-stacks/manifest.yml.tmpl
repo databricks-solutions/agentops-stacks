@@ -21,9 +21,9 @@ agents:
   - name: {{ .input_initial_agent_name }}
 
 # Supervisor agent (added via /add-supervisor once you have >1 agent).
-# Routes user queries across the agents above. Two patterns are supported —
-# see docs/supervisor-patterns.md. None is configured until you add one.
+# Routes user queries across the agents above — a custom LangGraph supervisor.
+# See docs/supervisor-patterns.md. None is configured until you add one.
 # supervisor:
-#   type: custom | supervisor_api
+#   type: custom
 #   name: <supervisor_agent_name>
 #   routes: [<agent_a>, <agent_b>]

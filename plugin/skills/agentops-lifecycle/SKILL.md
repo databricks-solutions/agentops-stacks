@@ -301,20 +301,18 @@ If the project has more than one agent, add a supervisor to route user queries
 across them. This is a post-scaffold pattern — use the `/add-supervisor` skill.
 Skip if you have a single agent.
 
-The supervisor is chosen by best fit across two patterns (Selection Matrix in
-the `add-supervisor` skill), summarized:
+First check that a supervisor is warranted — if a deterministic router or a
+sequential chain would do, prefer that (the Big Book names premature multi-agent
+orchestration an anti-pattern). Add one only when routing genuinely depends on
+the request across ≥2 specialists.
 
-| Pattern | Loop owner | In the bundle | DAB-declarable | Status |
-|---|---|---|---|---|
-| **custom** (default) | your code | agent App under `src/agents/` | yes, natively | GA |
-| **supervisor_api** | Databricks | wrapper App under `src/agents/` | yes, as an App | Beta |
+The supervisor is a **custom LangGraph** agent (GA): a hand-written graph served
+as a Databricks App, fully declared in `databricks.yml`. Scaffolded as an agent
+App, it gets its own `eval/gates.yml`, which CI's `detect_patterns → eval_gate`
+picks up with no workflow change. See `docs/supervisor-patterns.md`.
 
-- Default to **custom** — it's GA, fully declarable, and gated by the same eval
-  loop as every other agent (a supervisor scaffolded as an agent App gets its
-  own `eval/gates.yml`, which CI's `detect_patterns → eval_gate` picks up with
-  no workflow change).
-- Choose **supervisor_api** for a managed loop with minimal code. See
-  `docs/supervisor-patterns.md`.
+(A managed "Supervisor API" pattern was removed — that API is deprecated,
+EOL 2026-09-30; Databricks recommends custom agents on Apps.)
 
 ```bash
 # In your coding assistant:

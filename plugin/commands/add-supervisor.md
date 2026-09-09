@@ -1,8 +1,8 @@
 ---
 description: >
-  Add a supervisor agent that routes across your project's agents. Picks the
-  best-fit pattern — custom LangGraph or Supervisor API — via a decision matrix,
-  then scaffolds it into databricks.yml and the manifest.
+  Add a custom LangGraph supervisor that routes across your project's agents,
+  scaffolded into databricks.yml and the manifest. First checks whether a
+  supervisor is warranted.
 ---
 
 Use the `add-supervisor` skill.
@@ -15,12 +15,13 @@ Genie spaces or Knowledge Assistants).
 `src/agents/` must exist. Run `/add-agent` first if you only have one agent and
 want the supervisor to route between several.
 
-The skill runs a Selection Matrix to choose between two patterns:
+The skill first checks whether a supervisor is even warranted (a deterministic
+router or sequential chain is often the better tool), then scaffolds a **custom
+LangGraph** supervisor — a hand-written graph served as a Databricks App, fully
+declared in `databricks.yml`, gated by the CI eval loop like any other agent.
 
-- **custom** (GA, default) — a hand-written LangGraph supervisor, served as a
-  Databricks App, fully declared in `databricks.yml`, gated by the CI eval loop.
-- **supervisor_api** (Beta) — the Databricks-managed loop wrapped in a
-  declarable App; minimal code, per-request model choice.
+(A managed "Supervisor API" pattern was removed — that API is deprecated,
+EOL 2026-09-30; Databricks recommends custom agents on Apps instead.)
 
-Defer to the skill's SKILL.md for the full decision matrix, per-pattern
+Defer to the skill's SKILL.md for the "is a supervisor warranted?" pre-gate,
 scaffolding behavior, security posture, and next steps.

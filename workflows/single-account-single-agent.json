@@ -336,17 +336,13 @@
     "supervisor_selection": {
       "when": "Add a supervisor once the project has >1 agent (post-scaffold pattern, via /add-supervisor). A supervisor routes user queries across agents and other managed sub-agents.",
       "default": "custom",
-      "decision_matrix": [
-        {"gate": "D1", "test": "Lifecycle parity non-negotiable — same DAB + eval gate + dev/staging/prod promotion, GA, fully in databricks.yml", "choose": "custom"},
-        {"gate": "D2", "test": "Orchestration control needed — custom state, conditional routing, guardrails, HITL, Lakebase checkpointer, retry policy", "choose": "custom"},
-        {"gate": "D3", "test": "Managed loop, code-first, no custom graph, per-request model choice, packaged as a bundle App; admin can enable AI Gateway + UC OTel-traces preview", "choose": "supervisor_api"},
-        {"gate": "D4", "test": "HIPAA/enhanced-security or GA-certainty required (override)", "choose": "custom"}
-      ],
+      "warranted_check": "Before adding a supervisor, confirm one is warranted: one specialist -> keep the single agent; a fixed step order -> a deterministic router / sequential chain in one agent; only dynamic routing across >=2 non-overlapping specialists warrants a supervisor. Premature multi-agent orchestration is an anti-pattern (overhead, harder debugging, loops between agents).",
+      "pattern": "custom",
       "patterns": {
-        "custom": {"status": "GA", "loop_owner": "your code", "artifact": "agent App under src/agents/", "dab_declarable": true, "eval_gated": true},
-        "supervisor_api": {"status": "Beta", "loop_owner": "Databricks (managed)", "artifact": "wrapper App under src/agents/", "dab_declarable": true, "eval_gated": true, "prereqs": "AI Gateway + UC OTel-traces preview"}
+        "custom": {"status": "GA", "loop_owner": "your code", "artifact": "agent App under src/agents/", "dab_declarable": true, "eval_gated": true, "note": "Hand-written LangGraph supervisor. The managed Supervisor API pattern was removed: deprecated, EOL 2026-09-30; Databricks recommends custom agents on Apps instead."}
       },
-      "manifest_contract": "Recorded in .agentops-stacks/manifest.yml under `supervisor:` with type, name, and routes. CI/tooling read this without knowing how the supervisor was created.",
+      "eval_note": "Routing decisions are a structured output -> evaluate programmatically (accuracy/F1/confusion matrix), not with an LLM judge; gate the whole chain end-to-end, not just the final answer.",
+      "manifest_contract": "Recorded in .agentops-stacks/manifest.yml under `supervisor:` with type (custom), name, and routes. CI/tooling read this without knowing how the supervisor was created.",
       "docs": "docs/supervisor-patterns.md (rendered project)"
     }
   }
