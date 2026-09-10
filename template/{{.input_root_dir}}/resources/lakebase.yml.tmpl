@@ -1,12 +1,12 @@
 resources:
-  database_instances:
+  postgres_projects:
     memory:
-      name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
-      capacity: CU_1
-
-  database_catalogs:
-    memory_catalog:
-      name: {{ .input_project_name }}_memory
-      database_instance_name: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
-      database_name: default
-      create_database_if_not_exists: true
+      project_id: {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory
+      display_name: {{ .input_project_name }} agent memory
+      pg_version: 17
+      # Sizing for the auto-created `production` branch read-write endpoint.
+      # Small autoscaling range suits an OLTP agent-memory workload; scale-to-zero
+      # is configured per-target in databricks.yml (enabled on dev, off on prod).
+      default_endpoint_settings:
+        autoscaling_limit_min_cu: 0.5
+        autoscaling_limit_max_cu: 2

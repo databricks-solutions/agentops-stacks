@@ -60,7 +60,7 @@
     "input_use_lakebase": {
       "order": 8,
       "type": "string",
-      "description": "\nInclude shared Lakebase (Postgres) component for agent memory (LangGraph checkpointer).\ninput_use_lakebase",
+      "description": "\nInclude shared Lakebase (Autoscaling Postgres) component for agent memory (LangGraph checkpointer).\ninput_use_lakebase",
       "default": "no",
       "enum": ["yes", "no"]
     },

@@ -39,6 +39,9 @@ GO_TEMPLATE_COMBOS = [
     ("vs=yes", {"input_use_vector_search": "yes"}),
     ("vs+chunked", {"input_use_vector_search": "yes", "input_has_chunked_table": "yes"}),
     ("lakebase=yes", {"input_use_lakebase": "yes"}),
+    ("lakebase+short", {"input_use_lakebase": "yes", "input_memory_type": "short_term"}),
+    ("lakebase+long", {"input_use_lakebase": "yes", "input_memory_type": "long_term"}),
+    ("lakebase+both", {"input_use_lakebase": "yes", "input_memory_type": "both"}),
     ("eval=existing", {"input_eval_dataset_source": "existing"}),
     ("eval=manual", {"input_eval_dataset_source": "manual"}),
     ("eval=production_traces", {"input_eval_dataset_source": "production_traces"}),
@@ -253,6 +256,119 @@ def test_lakebase_enabled_emits_resource(tmp_path):
 
 def test_lakebase_disabled_omits_resource(tmp_path):
     assert not file_exists(gen(tmp_path), "resources/lakebase.yml")
+
+
+def test_lakebase_resource_is_autoscaling(tmp_path):
+    """The Lakebase resource uses Autoscaling (postgres_projects), not Provisioned."""
+    content = read_file(gen(tmp_path, input_use_lakebase="yes"), "resources/lakebase.yml")
+    assert "postgres_projects" in content
+    assert "autoscaling_limit_max_cu" in content
+    # No leftover Provisioned resource types / fields.
+    assert "database_instances" not in content
+    assert "database_catalogs" not in content
+    assert "capacity: CU_" not in content
+
+
+def test_lakebase_app_resource_uses_postgres_key(tmp_path):
+    """The app binds the memory via the `postgres` resource key, not the Provisioned `database` key."""
+    content = read_file(gen(tmp_path, input_use_lakebase="yes"), "databricks.yml")
+    assert "postgres:" in content
+    assert "branches/production" in content
+    assert "instance_name:" not in content
+    # The database *resource id* is hyphenated (databricks-postgres); using the
+    # underscore Postgres db name here fails deploy with a 404. Guard against it.
+    assert "databases/databricks-postgres" in content
+    assert "databases/databricks_postgres" not in content
+
+
+def test_lakebase_checkpointer_uses_databricks_langchain(tmp_path):
+    """graph.py connects via databricks-langchain AsyncCheckpointSaver, not w.database."""
+    content = read_file(
+        gen(tmp_path, input_use_lakebase="yes"), "src/agents/default/graph.py"
+    )
+    assert "AsyncCheckpointSaver" in content
+    assert "databricks_langchain" in content
+    assert "LAKEBASE_ENDPOINT" in content
+    # No leftover Provisioned SDK calls / env vars.
+    assert "w.database.generate_database_credential" not in content
+    assert "instance_names" not in content
+    assert "LAKEBASE_INSTANCE" not in content
+
+
+def test_lakebase_pyproject_adds_databricks_langchain_memory(tmp_path):
+    content = read_file(
+        gen(tmp_path, input_use_lakebase="yes"), "src/agents/default/pyproject.toml"
+    )
+    assert "databricks-langchain[memory]" in content
+
+
+# ---------------------------------------------------------------------------
+# Lakebase memory type — short-term (checkpointer) vs long-term (store + tools)
+# ---------------------------------------------------------------------------
+
+
+def test_lakebase_short_term_has_checkpointer_only(tmp_path):
+    p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="short_term")
+    graph = read_file(p, "src/agents/default/graph.py")
+    tools = read_file(p, "src/agents/default/tools.py")
+    # Short-term checkpointer present, long-term store absent.
+    assert "get_async_checkpointer" in graph
+    assert "AsyncDatabricksStore" not in graph
+    assert "get_async_store" not in graph
+    assert "save_user_memory" not in tools
+    assert "memory_tools" not in tools
+
+
+def test_lakebase_long_term_has_store_and_tools(tmp_path):
+    p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="long_term")
+    graph = read_file(p, "src/agents/default/graph.py")
+    tools = read_file(p, "src/agents/default/tools.py")
+    agent = read_file(p, "src/agents/default/agent.py")
+    # Long-term store + tools present.
+    assert "AsyncDatabricksStore" in graph
+    assert "get_async_store" in graph
+    assert "def memory_tools" in tools
+    assert "save_user_memory" in tools
+    assert "get_user_memory" in tools
+    assert "delete_user_memory" in tools
+    # user_id is wired into the request config.
+    assert "get_user_id" in agent
+    # long-term only → no short-term checkpointer.
+    assert "get_async_checkpointer" not in graph
+
+
+def test_lakebase_both_has_checkpointer_and_store(tmp_path):
+    p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="both")
+    graph = read_file(p, "src/agents/default/graph.py")
+    tools = read_file(p, "src/agents/default/tools.py")
+    assert "get_async_checkpointer" in graph
+    assert "AsyncCheckpointSaver" in graph
+    assert "get_async_store" in graph
+    assert "AsyncDatabricksStore" in graph
+    assert "memory_tools" in tools
+
+
+def test_lakebase_long_term_adds_embedding_env(tmp_path):
+    p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="long_term")
+    app_yaml = read_file(p, "src/agents/default/app.yaml")
+    assert "DATABRICKS_EMBEDDING_ENDPOINT" in app_yaml
+    assert "databricks-gte-large-en" in app_yaml
+
+
+def test_lakebase_short_term_omits_embedding_env(tmp_path):
+    p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="short_term")
+    app_yaml = read_file(p, "src/agents/default/app.yaml")
+    assert "DATABRICKS_EMBEDDING_ENDPOINT" not in app_yaml
+
+
+def test_lakebase_disabled_omits_all_memory_wiring(tmp_path):
+    """input_memory_type defaults exist, but no lakebase → no memory code at all."""
+    p = gen(tmp_path)
+    graph = read_file(p, "src/agents/default/graph.py")
+    tools = read_file(p, "src/agents/default/tools.py")
+    assert "AsyncCheckpointSaver" not in graph
+    assert "AsyncDatabricksStore" not in graph
+    assert "memory_tools" not in tools
 
 
 # ---------------------------------------------------------------------------

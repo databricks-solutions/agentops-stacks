@@ -154,7 +154,70 @@ After the SPs exist, they need to be wired into the corresponding workspaces. In
 Repeat for prod against the prod catalog and prod SP.
 
 ---
+{{ if (eq .input_use_lakebase `yes`) }}
+## 2e. Lakebase (Autoscaling Postgres) for agent memory
 
+This project uses a Lakebase Autoscaling project for agent memory. The bundle
+declares it in `resources/lakebase.yml` (`postgres_projects.memory`) and
+`databricks bundle deploy` creates the project, its `production` branch, and a
+read-write compute endpoint (0.5–2 CU; scale-to-zero after 5 min idle on dev,
+always-on in staging/prod).
+
+This project is configured for **{{ .input_memory_type }}** memory:
+{{ if (or (eq .input_memory_type "short_term") (eq .input_memory_type "both")) }}
+- **Short-term memory** — a LangGraph Postgres checkpointer
+  (`databricks_langchain.AsyncCheckpointSaver`) that preserves conversation history
+  within a session. Pass `session_id` in the request's `custom_inputs` (or a
+  `conversation_id` context) to resume a thread.
+{{ end }}{{ if (or (eq .input_memory_type "long_term") (eq .input_memory_type "both")) }}
+- **Long-term memory** — a per-user semantic store
+  (`databricks_langchain.AsyncDatabricksStore`) surfaced to the agent through the
+  `get_user_memory` / `save_user_memory` / `delete_user_memory` tools. Pass
+  `user_id` in the request's `custom_inputs` to scope memories per user; without it
+  the tools no-op. Semantic search uses the embedding endpoint set by
+  `DATABRICKS_EMBEDDING_ENDPOINT` (default `databricks-gte-large-en`, 1024 dims).
+{{ end }}
+Prerequisites and notes:
+
+- The deploying identity needs **CAN MANAGE on Lakebase projects** in the workspace.
+- The app connects with a short-lived, Lakebase-scoped OAuth credential minted by
+  the `databricks-langchain` memory SDK — no static password. The app resource in
+  `databricks.yml` grants the app service principal `CAN_CONNECT_AND_CREATE`.
+{{ if (or (eq .input_memory_type "long_term") (eq .input_memory_type "both")) }}- Long-term memory queries the embedding endpoint, so the app service principal
+  needs **CAN QUERY** on `databricks-gte-large-en` (or whatever
+  `DATABRICKS_EMBEDDING_ENDPOINT` points to).
+{{ end }}- **Grant the app service principal `CREATE` on schema `public` (one-time, required).**
+  On a fresh Lakebase project, schema `public` is owned by `pg_database_owner`. The
+  bundle's `CAN_CONNECT_AND_CREATE` app-resource grant lets the app SP *connect* and
+  gives it `USAGE`, but **not** `CREATE ON SCHEMA public` — so the memory SDK's
+  first-run `CREATE TABLE ... migrations` fails with `permission denied for schema
+  public`, and the agent silently runs *without* memory (it still answers; the memory
+  tools just no-op). This is the most common reason memory "doesn't work" after a
+  clean deploy. Fix it once, connected as the database owner (the deploying user):
+
+  ```sql
+  GRANT USAGE, CREATE ON SCHEMA public TO "<app-service-principal-client-id>";
+  ```
+
+  Find the app SP client id with `databricks apps get {{ (regexp "_").ReplaceAllString .input_project_name "-" }}-{{ (regexp "_").ReplaceAllString .input_initial_agent_name "-" }}`
+  (field `service_principal_client_id`). The app retries setup on every request, so
+  memory starts working on the next invocation — no redeploy or restart needed.
+- **Deploy the app before connecting locally.** If you connect from your laptop
+  first, *your* user owns the memory schema and the deployed app then hits
+  `permission denied`. Deploy first so the app SP owns its tables. See the
+  `lakebase-ops` skill to recover if this happens.
+- `LAKEBASE_ENDPOINT` in the agent's `app.yaml` comes prefilled with the derivable
+  path to the auto-created read-write endpoint
+  (`projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production/endpoints/primary`).
+  You normally don't need to touch it. If you renamed the branch or created a custom
+  endpoint, verify the exact path with:
+
+  ```bash
+  databricks postgres list-endpoints projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production
+  ```
+
+---
+{{ end }}
 ## 3. Local development
 
 Configure a Databricks CLI profile for your dev workspace so you can run `databricks bundle validate` and `databricks bundle deploy` from your machine.
@@ -342,3 +405,20 @@ After this, pushes to `main` deploy to staging via CI/CD, and tags matching `v*`
 **`The experiment was created with a bad artifact location`** — the `artifact_location` in `resources/experiment.yml` must have an explicit URI scheme (`dbfs:/Volumes/...`), not just `/Volumes/...`. `bundle validate` accepts either; only deploy enforces the scheme.
 
 **CI error: `Unable to verify checksums signature: openpgp: key expired` during Terraform download** — your pinned Databricks CLI in CI is too old for `bundle: engine: direct` and is falling back to the Terraform engine. Bump `cli_version` in `library/template_variables.tmpl` to v0.295.0 or later.
+{{ if (eq .input_use_lakebase `yes`) }}
+**Agent memory silently doesn't work — app logs show `permission denied for schema public` / `CREATE TABLE ... checkpoint_migrations` / `store_migrations`** — the app service principal can connect to Lakebase but lacks `CREATE ON SCHEMA public`, so the memory SDK can't create its tables and the agent degrades to running without memory. Grant it once as the database owner — see the grant step in section 2e.
+
+**`This endpoint databricks-... is deprecated` (400) on every agent invocation** — the model set in `LLM_ENDPOINT` (in `src/agents/<agent>/app.yaml`) has been retired on your workspace. Pick a current one from `databricks serving-endpoints list` and update `LLM_ENDPOINT`, then redeploy the app.
+
+**`project slug already exists in the workspace` when deploying the Lakebase memory project** — Lakebase Postgres project slugs (here `{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory`) are unique per workspace and reserved through a **7-day soft-delete retention window**. If you previously deployed then deleted the project (e.g. `bundle destroy`), the slug stays reserved until its `purge_time`, and a redeploy fails even though the project no longer appears in `databricks postgres list-projects`. Inspect the soft-deleted project and force an early purge to free the slug:
+
+```bash
+# Confirm it's soft-deleted (shows delete_time and purge_time):
+databricks api get "/api/2.0/postgres/projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory"
+
+# Purge now instead of waiting for purge_time:
+databricks api delete "/api/2.0/postgres/projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory?purge=true"
+```
+
+Then redeploy. Alternatively, wait until `purge_time` and the slug frees itself.
+{{ end }}
