@@ -13,6 +13,7 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 | **`agentops-stacks`** | `scaffold a new agentops project` | Scaffolds a new multi-agent LangGraph project (per-agent Databricks Apps, shared components, UC schema and volume, MLflow experiments, CI/CD wiring). One-time use at project start. |
 | **`agentops-lifecycle`** | `walk me through the agentops lifecycle` | Guides an existing scaffold through the complete Single-Account Single-Agent lifecycle — data prep, agent dev, eval gate, SME calibration, CI/CD promotion, batch eval baseline, and production monitoring. 10 steps across dev → staging → prod. |
 | **`add-agent`** | `add agent`, `new agent`, `create another agent` | Adds a new agent to an existing project — copies an existing agent as a template and wires it into `databricks.yml` and the manifest. |
+| **`add-supervisor`** | `add supervisor`, `add a router`, `orchestrate my agents` | Checks whether a supervisor is warranted, then scaffolds a custom LangGraph supervisor that routes across the project's agents into `databricks.yml` and the manifest — gated by the same eval loop as any agent. |
 
 ### Commands
 
@@ -21,6 +22,7 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 | `/init-agentops-stacks` | `agentops-stacks` |
 | `/agentops-lifecycle` | `agentops-lifecycle` |
 | `/add-agent` | `add-agent` |
+| `/add-supervisor` | `add-supervisor` |
 
 ### Installers
 
@@ -98,17 +100,24 @@ plugin/
 ├── commands/
 │   ├── init-agentops-stacks.md                  # scaffold command
 │   ├── agentops-lifecycle.md                    # lifecycle command
+│   ├── add-supervisor.md                        # add-supervisor command
 │   └── common-issues.md                         # troubleshooting reference
 └── skills/
     ├── install_skills.sh                        # local + Genie upload installer
     ├── install_genie_code_skills.py             # in-workspace notebook installer
     ├── agentops-stacks/
     │   ├── SKILL.md                             # scaffold skill (5-phase input collection)
-    │   └── reference/                           # post-scaffold, Genie Code, common issues docs
+    │   ├── reference/                           # post-scaffold, Genie Code, common issues docs
+    │   └── scripts/
+    │       ├── add_agent.py                     # /add-agent engine
+    │       ├── add_supervisor.py                # /add-supervisor engine (2 patterns)
+    │       └── supervisor_templates/            # supervisor graph/agent/tools templates
     ├── agentops-lifecycle/
     │   └── SKILL.md                             # lifecycle skill (10-step dev→prod guide)
-    └── add-agent/
-        └── SKILL.md                             # add-agent skill (wires new agent into existing project)
+    ├── add-agent/
+    │   └── SKILL.md                             # add-agent skill (wires new agent into existing project)
+    └── add-supervisor/
+        └── SKILL.md                             # add-supervisor skill (routes across agents; best-fit pattern)
 ```
 
 Each skill is a single `SKILL.md`. There's no Python renderer and no vendored

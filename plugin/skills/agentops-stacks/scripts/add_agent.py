@@ -35,6 +35,15 @@ def find_existing_agents(project_root: Path) -> list[str]:
     return [d.name for d in agents_dir.iterdir() if d.is_dir() and (d / "agent.py").exists()]
 
 
+def _rename_identifier(text: str, source: str, target: str) -> str:
+    """Rename agent identifier `source` -> `target`, matching it only as a whole
+    token. Underscores and other separators count as boundaries, so source `rag`
+    rewrites `rag`, `rag_eval`, and `proj_rag_eval` but never touches substrings
+    like `storage` or `myrag`. A raw str.replace corrupts any identifier that
+    merely contains the source name (e.g. `storage` -> `stoROUTERe`)."""
+    return re.sub(rf"(?<![A-Za-z0-9]){re.escape(source)}(?![A-Za-z0-9])", target, text)
+
+
 def copy_agent(project_root: Path, source_name: str, new_name: str):
     """Copy an agent folder, replacing the source name with new name in all files."""
     agents_dir = project_root / "src" / "agents"
@@ -61,7 +70,7 @@ def copy_agent(project_root: Path, source_name: str, new_name: str):
         except UnicodeDecodeError:
             continue
 
-        updated = content.replace(source_name, new_name)
+        updated = _rename_identifier(content, source_name, new_name)
         if updated != content:
             filepath.write_text(updated)
 

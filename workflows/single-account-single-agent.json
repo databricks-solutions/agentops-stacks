@@ -332,6 +332,18 @@
     "git_flow": "dev branch → PR to main (CI gate) → merge to main → merge to release (CD to prod)",
     "unity_catalog": "Prod catalog is READ-ONLY from dev. Agent reads from dev catalog in dev/staging; prod agent uses prod catalog exclusively.",
     "mlflow_spine": "One MLflow tracking server per workspace. Experiment per agent per environment. @champion alias governs what runs in production.",
-    "escalation_path": "Step fails after max_retries → Slack DM to team lead → human reviews MLflow trace → documents root cause → unblocks workflow"
+    "escalation_path": "Step fails after max_retries → Slack DM to team lead → human reviews MLflow trace → documents root cause → unblocks workflow",
+    "supervisor_selection": {
+      "when": "Add a supervisor once the project has >1 agent (post-scaffold pattern, via /add-supervisor). A supervisor routes user queries across agents and other managed sub-agents.",
+      "default": "custom",
+      "warranted_check": "Before adding a supervisor, confirm one is warranted: one specialist -> keep the single agent; a fixed step order -> a deterministic router / sequential chain in one agent; only dynamic routing across >=2 non-overlapping specialists warrants a supervisor. Premature multi-agent orchestration is an anti-pattern (overhead, harder debugging, loops between agents).",
+      "pattern": "custom",
+      "patterns": {
+        "custom": {"status": "GA", "loop_owner": "your code", "artifact": "agent App under src/agents/", "dab_declarable": true, "eval_gated": true, "note": "Hand-written LangGraph supervisor. The managed Supervisor API pattern was removed: deprecated, EOL 2026-09-30; Databricks recommends custom agents on Apps instead."}
+      },
+      "eval_note": "Routing decisions are a structured output -> evaluate programmatically (accuracy/F1/confusion matrix), not with an LLM judge; gate the whole chain end-to-end, not just the final answer.",
+      "manifest_contract": "Recorded in .agentops-stacks/manifest.yml under `supervisor:` with type (custom), name, and routes. CI/tooling read this without knowing how the supervisor was created.",
+      "docs": "docs/supervisor-patterns.md (rendered project)"
+    }
   }
 }

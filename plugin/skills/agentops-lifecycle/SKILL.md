@@ -231,7 +231,7 @@ from langgraph.prebuilt import ToolNode
 from databricks_langchain import ChatDatabricks
 from tools import get_tools
 
-LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4")
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4-5")
 
 def agent_node(state: MessagesState) -> dict:
     tools = get_tools()
@@ -292,6 +292,37 @@ endpoint or UC model registration required.
 - `databricks bundle deploy -t dev` exits 0.
 - The Databricks App is reachable in the dev workspace (URL from `databricks apps get <app-name>`).
 - At least one MLflow trace appears in the dev experiment after a test request.
+
+---
+
+## Step 3.5 — Add a Supervisor (only when you have >1 agent)
+
+If the project has more than one agent, add a supervisor to route user queries
+across them. This is a post-scaffold pattern — use the `/add-supervisor` skill.
+Skip if you have a single agent.
+
+First check that a supervisor is warranted — if a deterministic router or a
+sequential chain would do, prefer that (the Big Book names premature multi-agent
+orchestration an anti-pattern). Add one only when routing genuinely depends on
+the request across ≥2 specialists.
+
+The supervisor is a **custom LangGraph** agent (GA): a hand-written graph served
+as a Databricks App, fully declared in `databricks.yml`. Scaffolded as an agent
+App, it gets its own `eval/gates.yml`, which CI's `detect_patterns → eval_gate`
+picks up with no workflow change. See `docs/supervisor-patterns.md`.
+
+(A managed "Supervisor API" pattern was removed — that API is deprecated,
+EOL 2026-09-30; Databricks recommends custom agents on Apps.)
+
+```bash
+# In your coding assistant:
+/add-supervisor
+# or: "add a supervisor that routes between my rag and support agents"
+```
+
+The supervisor is recorded in `.agentops-stacks/manifest.yml` under
+`supervisor:`. From here, the rest of the lifecycle (eval gate, CI, staging,
+prod) applies to the supervisor agent exactly as it does to any agent.
 
 ---
 

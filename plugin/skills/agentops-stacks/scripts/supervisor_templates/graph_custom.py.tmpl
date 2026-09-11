@@ -1,0 +1,100 @@
+"""{{SUPERVISOR_NAME}} — custom LangGraph supervisor.
+
+Routes across sub-agents: {{ROUTES_COMMENT}}
+
+This is a hand-written supervisor: your code owns the routing loop, so you
+control state, guardrails, retries, and human-in-the-loop. It is served as a
+Databricks App via MLflow AgentServer exactly like any other agent, is declared
+in databricks.yml, and is gated by the same CI eval loop.
+
+Sub-agents can be:
+  - Local agents in this project, reached as remote serving endpoints/Apps once
+    deployed (wire their endpoint names below).
+  - Genie spaces, via databricks_langchain.GenieAgent.
+  - Any Databricks model serving endpoint.
+
+Edit `build_sub_agents()` to point each route at its real backend.
+"""
+
+import os
+import logging
+
+from langgraph.prebuilt import create_react_agent
+from langgraph_supervisor import create_supervisor
+from databricks_langchain import ChatDatabricks
+
+logger = logging.getLogger(__name__)
+
+LLM_ENDPOINT = os.environ.get("LLM_ENDPOINT", "databricks-claude-sonnet-4-5")
+
+# Sub-agent routes recorded at scaffold time. Each name becomes a managed
+# member of the supervisor. Confirm/adjust the backing for each below.
+ROUTES = {{ROUTES_PY_LIST}}
+
+# Routing instructions steer the supervisor's handoff decisions. Make each
+# sub-agent's responsibility specific and non-overlapping.
+SUPERVISOR_PROMPT = (
+    "You are a supervisor routing user requests to the most appropriate "
+    "specialist agent. Analyze the request, hand off to exactly one specialist, "
+    "and return its answer. If the request spans domains, chain specialists: "
+    "gather information first, then act. If no specialist fits, answer directly "
+    "and say so."
+)
+
+
+def _sub_agent_for(route: str):
+    """Build a LangGraph sub-agent for a route.
+
+    Default: a ReAct agent backed by the Foundation Model API, named after the
+    route. Replace a branch with one of these to reach real backends:
+
+      # Genie space (SQL analytics):
+      from databricks_langchain.genie import GenieAgent
+      return GenieAgent(genie_space_id=os.environ["<ROUTE>_GENIE_SPACE_ID"],
+                        genie_agent_name=route)
+
+      # Remote serving endpoint / deployed sibling agent:
+      from databricks_langchain import ChatDatabricks
+      llm = ChatDatabricks(endpoint=os.environ["<ROUTE>_ENDPOINT"])
+      return create_react_agent(llm, tools=[], name=route)
+    """
+    llm = ChatDatabricks(endpoint=LLM_ENDPOINT)
+    return create_react_agent(
+        llm,
+        tools=[],  # TODO: give each specialist its own tools
+        prompt=f"You are the '{route}' specialist. Handle only {route}-related requests.",
+        name=route,
+    )
+
+
+def build_sub_agents() -> list:
+    """Return the list of compiled sub-agents the supervisor can route to."""
+    if not ROUTES:
+        logger.warning("No routes configured for supervisor — add sub-agent names "
+                       "to ROUTES and wire their backends in _sub_agent_for().")
+    return [_sub_agent_for(route) for route in ROUTES]
+
+
+def build_graph():
+    """Assemble the supervisor over its sub-agents."""
+    sub_agents = build_sub_agents()
+    supervisor_llm = ChatDatabricks(endpoint=LLM_ENDPOINT)
+    # create_supervisor returns an uncompiled StateGraph; compile at export.
+    return create_supervisor(
+        sub_agents,
+        model=supervisor_llm,
+        prompt=SUPERVISOR_PROMPT,
+        output_mode="full_history",
+        # No state_schema override. create_supervisor builds on the prebuilt
+        # ReAct agent state, which requires a `remaining_steps` key; passing
+        # MessagesState raises "Missing required key(s) {'remaining_steps'}" at
+        # import under langgraph 1.x (langgraph-supervisor 0.0.31 / langgraph 1.2).
+    )
+
+
+# Export builder for per-request compilation (parity with the agent template,
+# so a Lakebase checkpointer can be attached the same way if memory is enabled).
+graph_builder = build_graph()
+
+# Compiled graph used at startup / as a fallback.
+graph = graph_builder.compile()
