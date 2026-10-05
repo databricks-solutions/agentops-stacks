@@ -31,7 +31,7 @@ eval_gate:
     - exists:
         - evaluation/thresholds.yml
   script:
-    - pip install uv
+    - pip install uv==0.12.23
     - uv sync --frozen
     - |
       if [ -f evaluation/gate.py ]; then
