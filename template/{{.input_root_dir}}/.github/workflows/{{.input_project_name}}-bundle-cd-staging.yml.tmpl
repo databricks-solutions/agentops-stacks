@@ -25,8 +25,8 @@ jobs:
     concurrency: {{ .input_project_name }}-staging-bundle-job
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: databricks/setup-cli@{{template `cli_version` .}}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: databricks/setup-cli@{{template `cli_version` .}} # v0.299.1
       - name: Validate bundle for staging
         run: databricks bundle validate -t staging
       - name: Deploy bundle to staging
@@ -38,7 +38,7 @@ jobs:
     outputs:
       has_eval: {{`${{ steps.check.outputs.has_eval }}`}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: check
         run: |
           if find src/agents -name "gates.yml" -path "*/eval/gates.yml" 2>/dev/null | grep -q .; then
@@ -52,8 +52,8 @@ jobs:
     if: {{`${{ needs.detect_patterns.outputs.has_eval == 'true' }}`}}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
       - name: Run eval gate for each agent (post-deploy)
@@ -61,5 +61,5 @@ jobs:
           for gates_file in $(find src/agents -name "gates.yml" -path "*/eval/gates.yml"); do
             agent_dir=$(dirname "$(dirname "$gates_file")")
             echo "Running eval gate for $agent_dir"
-            (cd "$agent_dir" && uv sync && uv run python eval/evaluate_agent.py)
+            (cd "$agent_dir" && uv sync --frozen && uv run python eval/evaluate_agent.py)
           done

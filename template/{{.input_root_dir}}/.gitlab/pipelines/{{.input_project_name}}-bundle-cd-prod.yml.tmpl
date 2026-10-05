@@ -32,7 +32,7 @@ eval_gate:
         - evaluation/thresholds.yml
   script:
     - pip install uv
-    - uv sync
+    - uv sync --frozen
     - |
       if [ -f evaluation/gate.py ]; then
         uv run python evaluation/gate.py

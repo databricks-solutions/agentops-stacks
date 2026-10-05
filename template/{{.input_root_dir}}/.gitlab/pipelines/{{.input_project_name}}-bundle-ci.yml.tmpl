@@ -21,7 +21,7 @@ unit_tests:
   stage: test
   script:
     - pip install uv
-    - uv sync
+    - uv sync --frozen
     # Exit 5 from pytest means "no tests collected" — pass until the project adds tests.
     - uv run pytest --junitxml=test-unit.xml || [ $? -eq 5 ]
   artifacts:
@@ -42,7 +42,7 @@ eval_gate:
         - evaluation/thresholds.yml
   script:
     - pip install uv
-    - uv sync
+    - uv sync --frozen
     - |
       if [ -f evaluation/gate.py ]; then
         uv run python evaluation/gate.py
