@@ -404,7 +404,7 @@ After this, pushes to `main` deploy to staging via CI/CD, and tags matching `v*`
 
 **`The experiment was created with a bad artifact location`** — the `artifact_location` in `resources/experiment.yml` must have an explicit URI scheme (`dbfs:/Volumes/...`), not just `/Volumes/...`. `bundle validate` accepts either; only deploy enforces the scheme.
 
-**CI error: `Unable to verify checksums signature: openpgp: key expired` during Terraform download** — your pinned Databricks CLI in CI is too old for `bundle: engine: direct` and is falling back to the Terraform engine. Bump `cli_version` in `library/template_variables.tmpl` to v0.295.0 or later.
+**CI error: `Unable to verify checksums signature: openpgp: key expired` during Terraform download** — your pinned Databricks CLI in CI is too old for `bundle: engine: direct` and is falling back to the Terraform engine. Bump `cli_version` in `library/template_variables.tmpl` to v0.295.0 or later. `cli_version` is pinned to a commit SHA (not a tag), so resolve the target tag to its SHA first: `gh api repos/databricks/setup-cli/git/refs/tags/<tag> -q .object.sha`, then set that SHA and update the trailing version comment.
 {{ if (eq .input_use_lakebase `yes`) }}
 **Agent memory silently doesn't work — app logs show `permission denied for schema public` / `CREATE TABLE ... checkpoint_migrations` / `store_migrations`** — the app service principal can connect to Lakebase but lacks `CREATE ON SCHEMA public`, so the memory SDK can't create its tables and the agent degrades to running without memory. Grant it once as the database owner — see the grant step in section 2e.
 
