@@ -13,6 +13,7 @@ This project ships the structure, CI/CD wiring, and Unity Catalog configuration 
 5. `uv run python app/start_server.py` — run the agent locally.
 6. `databricks bundle validate -t dev --profile <dev-profile>`
 7. `databricks bundle deploy -t dev --profile <dev-profile>`
+8. `databricks bundle run {{ .input_initial_agent_name }} -t dev --profile <dev-profile>` — ship the code to the agent App and start it (`bundle deploy` alone leaves it stopped).
 
 ## Project layout
 

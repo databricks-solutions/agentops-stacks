@@ -36,13 +36,49 @@ resources:
       description: "{{ .input_initial_agent_name }} agent — {{ .input_project_name }}"
       source_code_path: ./src/agents/{{ .input_initial_agent_name }}
       config:
-        command: ["uv", "run", "python", "app/start_server.py"]
-{{ if (eq .input_enable_cost_tags "yes") }}      {{ template `usage_policy_line` . }}
+        # --frozen --no-dev: run the deps the App build installed from uv.lock,
+        # without re-resolving or pulling dev-only packages at startup.
+        command: ["uv", "run", "--frozen", "--no-dev", "python", "app/start_server.py"]
+        # The App's env lives here (not in a source app.yaml) so per-target values
+        # are resolved at deploy time. Values set here override any app.yaml.
+        env:
+          - name: CATALOG
+            value: ${var.catalog}
+          - name: SCHEMA
+            # The bundle's schema (dev-prefixed in development mode).
+            value: ${resources.schemas.project_schema.name}
+          - name: LLM_ENDPOINT
+            value: "databricks-claude-sonnet-4-5"
+          - name: MLFLOW_TRACKING_URI
+            value: "databricks"
+          - name: MLFLOW_EXPERIMENT_ID
+            # Traces go to the experiment attached below.
+            value_from: "experiment"
+{{ if (eq .input_use_lakebase "yes") }}          - name: LAKEBASE_ENDPOINT
+            # Prefilled with the derivable path to the auto-created read-write endpoint.
+            # `bundle deploy` creates the memory project with a default `production` branch
+            # and a primary read-write endpoint named `primary` — every path segment below
+            # is fixed by the project slug, so this needs no editing in the common case.
+            # If you renamed the branch or added a custom endpoint, verify the exact path with:
+            #   databricks postgres list-endpoints projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production
+            value: "projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production/endpoints/primary"
+{{ end }}{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "long_term") (eq .input_memory_type "both"))) }}          - name: DATABRICKS_EMBEDDING_ENDPOINT
+            value: "databricks-gte-large-en" # Embedding endpoint for long-term memory semantic search (1024 dims)
+{{ end }}{{ if (eq .input_enable_cost_tags "yes") }}      {{ template `usage_policy_line` . }}
 {{ end }}      resources:
         - name: "experiment"
           experiment:
             experiment_id: ${resources.experiments.experiment.id}
             permission: "CAN_MANAGE"
+        - name: "artifacts"
+          # Lets the App's service principal write traces and artifacts to the
+          # experiment's UC volume; the platform grants USE CATALOG / USE SCHEMA
+          # on the parents. The deploying identity needs MANAGE on the catalog
+          # (see docs/setup.md, section 2b).
+          uc_securable:
+            securable_full_name: ${var.catalog}.${resources.schemas.project_schema.name}.${resources.volumes.artifacts.name}
+            securable_type: "VOLUME"
+            permission: "WRITE_VOLUME"
 {{ if (eq .input_use_lakebase "yes") }}        - name: "memory"
           postgres:
             branch: ${resources.postgres_projects.memory.id}/branches/production

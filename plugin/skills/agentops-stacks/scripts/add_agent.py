@@ -110,7 +110,21 @@ def usage_tracking_snippets(content: str, project_name: str, agent_name: str) ->
     return experiment_tags, f"\n      {policy}"
 
 
-def append_to_databricks_yml(project_root: Path, new_name: str):
+def source_app_env(content: str, source_name: str) -> str:
+    """Return the source agent's `config.env` block from databricks.yml, verbatim.
+
+    The App's env lives in the bundle (resolved per target), so a new agent
+    inherits the source agent's env the way it inherits its code. Projects
+    scaffolded before that keep env in the copied app.yaml; then this is "".
+    """
+    match = re.search(
+        rf"\n    {re.escape(source_name)}:\n(?:      .*\n)*?        env:\n((?:          .*\n)+)",
+        content,
+    )
+    return "\n        env:\n" + match.group(1).rstrip("\n") if match else ""
+
+
+def append_to_databricks_yml(project_root: Path, new_name: str, source_name: str | None = None):
     """Append experiment + app resource for the new agent to databricks.yml."""
     yml_path = project_root / "databricks.yml"
     content = yml_path.read_text()
@@ -118,12 +132,13 @@ def append_to_databricks_yml(project_root: Path, new_name: str):
     hyphenated_name = new_name.replace("_", "-")
     hyphenated_project = project_name.replace("_", "-")
     experiment_tags, app_policy_line = usage_tracking_snippets(content, project_name, new_name)
+    app_env = source_app_env(content, source_name) if source_name else ""
 
     # Build the new experiment block
     experiment_block = f"""
     {new_name}_experiment:
       name: /Shared/${{bundle.name}}_{new_name}_${{bundle.target}}
-      artifact_location: dbfs:/Volumes/${{var.catalog}}/${{var.schema}}/artifacts{experiment_tags}"""
+      artifact_location: dbfs:/Volumes/${{var.catalog}}/${{resources.schemas.project_schema.name}}/artifacts{experiment_tags}"""
 
     # Build the new app block
     app_block = f"""
@@ -132,12 +147,17 @@ def append_to_databricks_yml(project_root: Path, new_name: str):
       description: "{new_name} agent — {project_name}"
       source_code_path: ./src/agents/{new_name}
       config:
-        command: ["uv", "run", "python", "app/start_server.py"]{app_policy_line}
+        command: ["uv", "run", "--frozen", "--no-dev", "python", "app/start_server.py"]{app_env}{app_policy_line}
       resources:
         - name: "experiment"
           experiment:
             experiment_id: ${{resources.experiments.{new_name}_experiment.id}}
-            permission: "CAN_MANAGE\""""
+            permission: "CAN_MANAGE"
+        - name: "artifacts"
+          uc_securable:
+            securable_full_name: ${{var.catalog}}.${{resources.schemas.project_schema.name}}.${{resources.volumes.artifacts.name}}
+            securable_type: "VOLUME"
+            permission: "WRITE_VOLUME\""""
 
     # Insert experiment: find the experiments block or create one
     if "experiments:" in content:
@@ -210,7 +230,7 @@ def main():
     print(f"Adding agent '{args.name}' (based on '{source}')\n")
 
     copy_agent(project_root, source, args.name)
-    append_to_databricks_yml(project_root, args.name)
+    append_to_databricks_yml(project_root, args.name, source)
     update_manifest(project_root, args.name)
 
     print(f"\nDone. New agent at: src/agents/{args.name}/")

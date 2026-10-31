@@ -108,7 +108,8 @@ def _rename_identifier(text: str, source: str, target: str) -> str:
 def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
                               source: str, routes: list[str]):
     """Copy an existing agent as the base, then overwrite graph/tools/deps with
-    the supervisor variant. Keeps the eval harness, app server, and app.yaml so
+    the supervisor variant. Keeps the eval harness and app server (the App's env
+    is inherited from the source agent's config in databricks.yml) so
     the CI eval gate and Databricks App serving work unchanged."""
     agents_dir = project_root / "src" / "agents"
     source_dir = agents_dir / source
@@ -221,18 +222,33 @@ def usage_tracking_snippets(content: str, project_name: str, agent_name: str) ->
     return experiment_tags, f"\n      {policy}"
 
 
-def append_agent_resources_to_databricks_yml(project_root: Path, name: str):
+def source_app_env(content: str, source: str) -> str:
+    """Return the source agent's `config.env` block from databricks.yml, verbatim.
+
+    The App's env lives in the bundle (resolved per target), so the supervisor
+    inherits the source agent's env the way it inherits its App shape. Projects
+    scaffolded before that keep env in the copied app.yaml; then this is "".
+    """
+    match = re.search(
+        rf"\n    {re.escape(source)}:\n(?:      .*\n)*?        env:\n((?:          .*\n)+)",
+        content,
+    )
+    return "\n        env:\n" + match.group(1).rstrip("\n") if match else ""
+
+
+def append_agent_resources_to_databricks_yml(project_root: Path, name: str, source: str | None = None):
     """Append experiment + app resource for the supervisor agent (identical
     wiring to add_agent.py so the App deploys like any other agent)."""
     yml_path = project_root / "databricks.yml"
     content = yml_path.read_text()
     project_name = get_project_name(project_root)
     experiment_tags, app_policy_line = usage_tracking_snippets(content, project_name, name)
+    app_env = source_app_env(content, source) if source else ""
 
     experiment_block = f"""
     {name}_experiment:
       name: /Shared/${{bundle.name}}_{name}_${{bundle.target}}
-      artifact_location: dbfs:/Volumes/${{var.catalog}}/${{var.schema}}/artifacts{experiment_tags}"""
+      artifact_location: dbfs:/Volumes/${{var.catalog}}/${{resources.schemas.project_schema.name}}/artifacts{experiment_tags}"""
 
     app_block = f"""
     {name}:
@@ -240,12 +256,17 @@ def append_agent_resources_to_databricks_yml(project_root: Path, name: str):
       description: "{name} supervisor — {project_name}"
       source_code_path: ./src/agents/{name}
       config:
-        command: ["uv", "run", "python", "app/start_server.py"]{app_policy_line}
+        command: ["uv", "run", "--frozen", "--no-dev", "python", "app/start_server.py"]{app_env}{app_policy_line}
       resources:
         - name: "experiment"
           experiment:
             experiment_id: ${{resources.experiments.{name}_experiment.id}}
-            permission: "CAN_MANAGE\""""
+            permission: "CAN_MANAGE"
+        - name: "artifacts"
+          uc_securable:
+            securable_full_name: ${{var.catalog}}.${{resources.schemas.project_schema.name}}.${{resources.volumes.artifacts.name}}
+            securable_type: "VOLUME"
+            permission: "WRITE_VOLUME\""""
 
     if "experiments:" in content:
         content = content.replace("\n  apps:", f"{experiment_block}\n\n  apps:")
@@ -345,7 +366,7 @@ def main():
         sys.exit(f"ERROR: Source agent '{source}' not found. Available: {existing}")
     print(f"Adding {args.type} supervisor '{args.name}' (App shape from '{source}')\n")
     scaffold_supervisor_agent(project_root, args.name, args.type, source, routes)
-    append_agent_resources_to_databricks_yml(project_root, args.name)
+    append_agent_resources_to_databricks_yml(project_root, args.name, source)
 
     update_manifest(project_root, args.name, args.type, routes)
 

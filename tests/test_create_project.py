@@ -133,13 +133,14 @@ def test_default_agent_runtime_files(tmp_path):
         "agent.py",
         "graph.py",
         "tools.py",
-        "app.yaml",
         "pyproject.toml",
         ".env.example",
         "app/start_server.py",
         "app/utils.py",
     ]:
         assert file_exists(p, f"{agent}/{f}"), f"Missing {agent}/{f}"
+    # The App's env lives in databricks.yml (resolved per target), not a source app.yaml.
+    assert not file_exists(p, f"{agent}/app.yaml")
 
 
 def test_custom_agent_name(tmp_path):
@@ -431,15 +432,15 @@ def test_lakebase_both_has_checkpointer_and_store(tmp_path):
 
 def test_lakebase_long_term_adds_embedding_env(tmp_path):
     p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="long_term")
-    app_yaml = read_file(p, "src/agents/default/app.yaml")
-    assert "DATABRICKS_EMBEDDING_ENDPOINT" in app_yaml
-    assert "databricks-gte-large-en" in app_yaml
+    app_env = read_file(p, "databricks.yml")
+    assert "DATABRICKS_EMBEDDING_ENDPOINT" in app_env
+    assert "databricks-gte-large-en" in app_env
 
 
 def test_lakebase_short_term_omits_embedding_env(tmp_path):
     p = gen(tmp_path, input_use_lakebase="yes", input_memory_type="short_term")
-    app_yaml = read_file(p, "src/agents/default/app.yaml")
-    assert "DATABRICKS_EMBEDDING_ENDPOINT" not in app_yaml
+    app_env = read_file(p, "databricks.yml")
+    assert "DATABRICKS_EMBEDDING_ENDPOINT" not in app_env
 
 
 def test_lakebase_disabled_omits_all_memory_wiring(tmp_path):
@@ -781,3 +782,80 @@ def test_databricks_yml_has_single_blank_line_before_include(tmp_path):
         p = gen(tmp_path / tags, input_enable_cost_tags=tags)
         assert "\n\n\ninclude:" not in read_file(p, "databricks.yml")
         assert "\n\ninclude:" in read_file(p, "databricks.yml")
+
+
+# ---------------------------------------------------------------------------
+# Deployed App: env resolved per target, UC grants, schema references, CD starts it
+# ---------------------------------------------------------------------------
+
+BUNDLE_SCHEMA = "${resources.schemas.project_schema.name}"
+
+
+def _app_block(databricks_yml, app="default"):
+    """The `resources.apps.<app>` block: from its key to the next 4-space key (or EOF)."""
+    start = databricks_yml.index(f"\n    {app}:\n", databricks_yml.index("\n  apps:\n"))
+    nxt = re.search(r"\n {0,4}\S", databricks_yml[start + 1:])
+    return databricks_yml[start: start + 1 + nxt.start()] if nxt else databricks_yml[start:]
+
+
+def test_app_env_is_resolved_per_target(tmp_path):
+    app = _app_block(read_file(gen(tmp_path), "databricks.yml"))
+    assert '["uv", "run", "--frozen", "--no-dev", "python", "app/start_server.py"]' in app
+    assert "- name: CATALOG\n            value: ${var.catalog}" in app
+    assert f"value: {BUNDLE_SCHEMA}" in app  # dev-prefixed schema, not the raw variable
+    assert "- name: MLFLOW_TRACKING_URI\n            value: \"databricks\"" in app
+    assert 'value_from: "experiment"' in app
+
+
+def test_app_attaches_the_artifacts_volume(tmp_path):
+    app = _app_block(read_file(gen(tmp_path), "databricks.yml"))
+    assert f"securable_full_name: ${{var.catalog}}.{BUNDLE_SCHEMA}.${{resources.volumes.artifacts.name}}" in app
+    assert 'securable_type: "VOLUME"' in app and 'permission: "WRITE_VOLUME"' in app
+
+
+@pytest.mark.parametrize("chunked", ["no", "yes"])
+def test_bundle_created_assets_reference_the_bundle_schema(tmp_path, chunked):
+    p = gen(tmp_path, **ALL_COMPONENTS, input_has_chunked_table=chunked)
+    files = ["resources/experiment.yml", "resources/volumes.yml", "resources/uc_function_registration.yml",
+             "resources/vector_search.yml"] + (["resources/data_pipeline.yml"] if chunked == "no" else [])
+    for f in files:
+        for line in read_file(p, f).splitlines():
+            if "${var.schema}" in line:
+                # Only a pre-existing, user-owned chunked table stays in the raw schema.
+                assert chunked == "yes" and "source_table:" in line, f"{f}: {line.strip()}"
+    vs = read_file(p, "resources/vector_search.yml")
+    expected = "${var.schema}" if chunked == "yes" else BUNDLE_SCHEMA
+    assert f"source_table: ${{var.catalog}}.{expected}." in vs
+
+
+@pytest.mark.parametrize("platform,files", [
+    ("github_actions", [f".github/workflows/{DEFAULT_PROJECT_NAME}-bundle-cd-staging.yml",
+                        f".github/workflows/{DEFAULT_PROJECT_NAME}-bundle-cd-prod.yml"]),
+    ("gitlab", [f".gitlab/pipelines/{DEFAULT_PROJECT_NAME}-bundle-cd-staging.yml",
+                f".gitlab/pipelines/{DEFAULT_PROJECT_NAME}-bundle-cd-prod.yml"]),
+    ("azure_devops", [f".azure/devops-pipelines/{DEFAULT_PROJECT_NAME}-bundle-cicd.yml"]),
+])
+def test_cd_starts_every_app_after_deploy(tmp_path, platform, files):
+    p = gen(tmp_path, input_cicd_platform=platform)
+    for f in files:
+        content = read_file(p, f)
+        for target in ("staging", "prod"):
+            deploy = f"databricks bundle deploy -t {target}"
+            if deploy not in content:
+                continue
+            run = content.index(f'databricks bundle run "$app" -t {target}')
+            assert content.index(deploy) < run, f"{f}: bundle run must follow deploy for {target}"
+
+
+def test_add_agent_inherits_the_source_app_env(tmp_path):
+    """/add-agent: the new App gets the source agent's env, the volume resource, and the bundle schema."""
+    project = tmp_path / "copy"
+    shutil.copytree(gen(tmp_path, input_use_lakebase="yes"), project)  # don't mutate the cached render
+    script = Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "plugin/skills/agentops-stacks/scripts/add_agent.py"
+    subprocess.run([sys.executable, str(script), "--name", "support_bot", "--from", "default",
+                    "--project-dir", str(project)], check=True, capture_output=True, text=True)
+    yml = read_file(project, "databricks.yml")
+    app = _app_block(yml, "support_bot")
+    assert "LAKEBASE_ENDPOINT" in app and 'value_from: "experiment"' in app
+    assert 'permission: "WRITE_VOLUME"' in app and "--no-dev" in app
+    assert f"artifact_location: dbfs:/Volumes/${{var.catalog}}/{BUNDLE_SCHEMA}/artifacts" in yml

@@ -31,6 +31,12 @@ jobs:
         run: databricks bundle validate -t prod
       - name: Deploy bundle to prod
         run: databricks bundle deploy -t prod
+      - name: Start the agent Apps on the new code
+        run: |
+          # `bundle deploy` doesn't ship code to the Apps or start them; `bundle run` does, for every App.
+          for app in $(databricks bundle summary -t prod -o json | python3 -c 'import json, sys; print(" ".join(json.load(sys.stdin).get("resources", {}).get("apps", {})))'); do
+            databricks bundle run "$app" -t prod
+          done
 
   # See detect_patterns rationale in the PR-check workflow.
   detect_patterns:

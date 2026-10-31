@@ -152,7 +152,7 @@ After scaffolding:
 1. `cd <destination>/<project_name>` and run `uv sync`
 2. Set workspace hosts in `databricks.yml` and create Unity Catalog catalogs — see `docs/setup.md`
 3. `databricks bundle validate -t dev`
-4. `databricks bundle deploy -t dev` to deploy
+4. `databricks bundle deploy -t dev` to deploy, then `databricks bundle run <agent> -t dev` to ship the code to the agent App and start it
 5. If `enable_cost_tags: yes` and no `usage_policy_id` was given: serverless usage stays untagged until a usage policy is set. See `docs/usage-tracking.md`.
 
 Point the user at the reference example closest to what they just scaffolded:

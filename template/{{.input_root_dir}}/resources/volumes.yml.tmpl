@@ -2,7 +2,7 @@ resources:
   volumes:
     artifacts:
       catalog_name: ${var.catalog}
-      schema_name: ${var.schema}
+      schema_name: ${resources.schemas.project_schema.name}
       name: artifacts
       volume_type: MANAGED
       comment: "MLflow artifacts for ${bundle.name}"

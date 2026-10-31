@@ -4,7 +4,7 @@ resources:
       # Flat path under /Shared/ so the deploy doesn't depend on a pre-created
       # parent directory. Group experiments by bundle.name when browsing.
       name: /Shared/${bundle.name}_${bundle.target}
-      artifact_location: dbfs:/Volumes/${var.catalog}/${var.schema}/artifacts
+      artifact_location: dbfs:/Volumes/${var.catalog}/${resources.schemas.project_schema.name}/artifacts
 {{ if (eq .input_enable_cost_tags "yes") }}      tags:
         - key: project
           value: {{ .input_project_name }}
