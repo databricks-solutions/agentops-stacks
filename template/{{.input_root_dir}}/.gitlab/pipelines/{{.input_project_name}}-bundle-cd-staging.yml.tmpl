@@ -11,8 +11,11 @@ variables:
   ARM_CLIENT_ID: "${STAGING_AZURE_SP_APPLICATION_ID}"
   ARM_CLIENT_SECRET: "${STAGING_AZURE_SP_CLIENT_SECRET}"
   {{- else -}}
-  DATABRICKS_TOKEN: "${STAGING_WORKSPACE_TOKEN}"
+  DATABRICKS_CLIENT_ID: "${STAGING_SP_CLIENT_ID}"
+  DATABRICKS_CLIENT_SECRET: "${STAGING_SP_CLIENT_SECRET}"
   {{- end }}
+  # Run exactly what uv.lock pins: `uv run` must not re-resolve and rewrite the lock.
+  UV_FROZEN: "1"
 
 stages:
   - deploy

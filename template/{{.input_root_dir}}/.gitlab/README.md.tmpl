@@ -17,7 +17,7 @@ Pipeline files live under `pipelines/`. The entry point is `{{ .input_project_na
 1. Create service principals for staging and prod workspaces and grant them the Unity Catalog permissions listed in the project README.
 2. In GitLab → Settings → CI/CD → Variables, add the auth credentials scoped to the staging and production environments:
    - **Azure:** `STAGING_AZURE_SP_TENANT_ID`, `STAGING_AZURE_SP_APPLICATION_ID`, `STAGING_AZURE_SP_CLIENT_SECRET` (and prod equivalents)
-   - **AWS / GCP:** `STAGING_WORKSPACE_TOKEN`, `PROD_WORKSPACE_TOKEN`
+   - **AWS / GCP:** `STAGING_SP_CLIENT_ID`, `STAGING_SP_CLIENT_SECRET` (and prod equivalents), the service principals' OAuth credentials
 3. Define GitLab environments (`staging`, `production`) so deploys can be approval-gated if desired.
 4. In Settings → CI/CD → General pipelines → CI/CD configuration file, set the path to `.gitlab/pipelines/{{ .input_project_name }}-triggers-cicd.yml`.
 

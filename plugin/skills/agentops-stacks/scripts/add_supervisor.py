@@ -276,7 +276,10 @@ def append_agent_resources_to_databricks_yml(project_root: Path, name: str, sour
             f"resources:\n  experiments:{experiment_block}\n\n  apps:",
         )
 
-    content = content.replace("\nsync:", f"{app_block}\n\nsync:")
+    # `targets:` is the top-level key that follows `resources:` in the scaffold.
+    if "\ntargets:" not in content:
+        sys.exit("ERROR: databricks.yml has no top-level `targets:` key to insert the supervisor app before.")
+    content = content.replace("\ntargets:", f"{app_block}\n\ntargets:", 1)
     yml_path.write_text(content)
     print(f"  Updated: databricks.yml (added experiment + app for {name})")
 

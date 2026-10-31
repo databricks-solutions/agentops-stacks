@@ -46,10 +46,6 @@ resources:
       name: "my-proj-rag"
       source_code_path: ./src/agents/rag
 
-sync:
-  include:
-    - src/agents/**
-
 targets:
   dev:
     default: true
@@ -163,8 +159,8 @@ def test_custom_appends_databricks_yml(project):
     assert "router_experiment:" in yml
     assert "source_code_path: ./src/agents/router" in yml
     assert "my-proj-router" in yml
-    # App block inserted before sync:, experiment created a new experiments block.
-    assert yml.index("router:") < yml.index("sync:")
+    # App block inserted before targets:, experiment created a new experiments block.
+    assert yml.index("router:") < yml.index("targets:")
 
 
 SOURCE_APP_WITH_ENV = '''    rag:
@@ -363,3 +359,11 @@ def test_tagged_project_with_live_policy_wires_supervisor_app(project):
     addsup.append_agent_resources_to_databricks_yml(project, "router")
     lines = [l.strip() for l in read(project, "databricks.yml").splitlines()]
     assert lines.count("budget_policy_id: ${var.usage_policy_id}") == 2
+
+
+def test_missing_targets_anchor_fails_loudly(project):
+    # The app block is inserted before `targets:`; without it, fail instead of silently adding nothing.
+    yml = project / "databricks.yml"
+    yml.write_text(yml.read_text().replace("targets:", "environments:"))
+    with pytest.raises(SystemExit):
+        addsup.append_agent_resources_to_databricks_yml(project, "router")

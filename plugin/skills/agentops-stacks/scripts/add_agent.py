@@ -173,10 +173,14 @@ def append_to_databricks_yml(project_root: Path, new_name: str, source_name: str
             f"resources:\n  experiments:{experiment_block}\n\n  apps:",
         )
 
-    # Append app after the last app entry (find the sync: block)
+    # Append the app after the last app entry: `targets:` is the top-level key
+    # that follows `resources:` in the scaffold's databricks.yml.
+    if "\ntargets:" not in content:
+        sys.exit("ERROR: databricks.yml has no top-level `targets:` key to insert the new app before.")
     content = content.replace(
-        "\nsync:",
-        f"{app_block}\n\nsync:",
+        "\ntargets:",
+        f"{app_block}\n\ntargets:",
+        1,
     )
 
     yml_path.write_text(content)

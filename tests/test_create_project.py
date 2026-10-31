@@ -182,7 +182,8 @@ def test_databricks_yml_content(tmp_path):
     assert f"name: {DEFAULT_PROJECT_NAME}" in content
     assert "source_code_path: ./src/agents/default" in content
     assert "app/start_server.py" in content
-    assert "src/agents/**" in content
+    # No sync.include: it overrides .gitignore and uploaded .venv/.env/mlflow.db (#61).
+    assert "sync:" not in content
     for r in ["experiment.yml", "schemas.yml", "volumes.yml"]:
         assert f"./resources/{r}" in content
 
@@ -859,3 +860,43 @@ def test_add_agent_inherits_the_source_app_env(tmp_path):
     assert "LAKEBASE_ENDPOINT" in app and 'value_from: "experiment"' in app
     assert 'permission: "WRITE_VOLUME"' in app and "--no-dev" in app
     assert f"artifact_location: dbfs:/Volumes/${{var.catalog}}/{BUNDLE_SCHEMA}/artifacts" in yml
+
+
+# ---------------------------------------------------------------------------
+# Deploy hygiene and CI auth
+# ---------------------------------------------------------------------------
+
+
+def test_gitignore_keeps_local_artifacts_out_of_deploys(tmp_path):
+    gitignore = read_file(gen(tmp_path), ".gitignore")
+    for pattern in (".venv/", ".env", "*.db", "mlruns", "__pycache__/"):
+        assert pattern in gitignore, pattern
+
+
+CI_FILES = {
+    "github_actions": [f".github/workflows/{DEFAULT_PROJECT_NAME}-bundle-{w}.yml" for w in ("ci", "cd-staging", "cd-prod")],
+    "gitlab": [f".gitlab/pipelines/{DEFAULT_PROJECT_NAME}-bundle-{w}.yml" for w in ("ci", "cd-staging", "cd-prod")],
+    "azure_devops": [f".azure/devops-pipelines/{DEFAULT_PROJECT_NAME}-bundle-cicd.yml"],
+}
+
+
+@pytest.mark.parametrize("platform", list(CI_FILES))
+@pytest.mark.parametrize("cloud", ["aws", "gcp", "azure"])
+def test_ci_authenticates_with_sp_oauth_not_a_token(tmp_path, platform, cloud):
+    p = gen(tmp_path, input_cicd_platform=platform, input_cloud=cloud)
+    for f in CI_FILES[platform]:
+        content = read_file(p, f)
+        assert "DATABRICKS_TOKEN" not in content, f
+        if cloud == "azure":
+            assert "ARM_CLIENT_SECRET" in content, f
+        else:
+            assert "DATABRICKS_CLIENT_ID" in content and "DATABRICKS_CLIENT_SECRET" in content, f
+            assert "_SP_CLIENT_SECRET" in content, f
+
+
+@pytest.mark.parametrize("platform", list(CI_FILES))
+def test_ci_runs_the_committed_lock(tmp_path, platform):
+    p = gen(tmp_path, input_cicd_platform=platform)
+    for f in CI_FILES[platform]:
+        content = read_file(p, f)
+        assert re.search(r'UV_FROZEN\b[":\s]+(value: )?"1"', content), f"{f}: UV_FROZEN not set"
