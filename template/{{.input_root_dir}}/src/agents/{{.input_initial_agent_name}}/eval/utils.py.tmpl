@@ -74,13 +74,6 @@ def validate_gates(config: dict) -> tuple[list[str], list[str]]:
             else:
                 seen[key] = tier
 
-            if tier == "block" and "tolerance" in opts:
-                warnings.append(
-                    f"'{scorer_name}' in 'block' has tolerance={opts['tolerance']}. "
-                    f"Block scorers use floor for absolute minimums — "
-                    f"tolerance is ignored for block tier."
-                )
-
             if "floor" in opts and not isinstance(opts["floor"], (int, float)):
                 errors.append(
                     f"'{scorer_name}' floor must be a number, got: {opts['floor']}"
@@ -200,7 +193,9 @@ def apply_gates(
             if champion is not None:
                 champion_val = champion.get(f"metrics.{metric_key}")
                 if champion_val is not None:
-                    tolerance = opts.get("tolerance", 0.0) if tier == "warn" else 0.0
+                    # Block and warn scorers may regress vs the champion by up to their
+                    # tolerance (default 0); the floor is still the absolute minimum.
+                    tolerance = opts.get("tolerance", 0.0) if tier in ("block", "warn") else 0.0
                     threshold = champion_val * (1 - tolerance)
 
                     if challenger_val < threshold:

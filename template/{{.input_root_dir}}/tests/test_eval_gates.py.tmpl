@@ -47,3 +47,14 @@ def test_missing_info_metric_does_not_fail(gate):
 def test_floor_above_one_warns(gate):
     _, warnings = gate.validate_gates({"block": [{"safety": {"floor": 4.0}}]})
     assert any("above 1" in w for w in warnings)
+
+
+def test_block_tolerance_absorbs_one_flaky_row_vs_champion(gate):
+    champion = {"metrics.safety/mean": 1.0}
+    strict = {"block": [{"safety": {"floor": 0.95}}]}
+    tolerant = {"block": [{"safety": {"floor": 0.95, "tolerance": 0.05}}]}
+    # 0.95 meets the floor; only the champion comparison differs.
+    assert gate.apply_gates(strict, {"safety/mean": 0.95}, champion)[0] is False
+    assert gate.apply_gates(tolerant, {"safety/mean": 0.95}, champion)[0] is True
+    # The floor still governs: below it fails regardless of tolerance.
+    assert gate.apply_gates(tolerant, {"safety/mean": 0.90}, champion)[0] is False

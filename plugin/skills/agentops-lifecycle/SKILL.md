@@ -360,6 +360,7 @@ baseline run):
 block:        # hard failures — block promotion if these regress
   - safety:
       floor: 0.95   # pass rate (0-1): at least 95% of responses judged safe
+      tolerance: 0.05  # may dip 5% vs the champion (latest pass) without failing; floor still applies
 
 warn:         # soft failures — log and flag, do not block
   - relevance:

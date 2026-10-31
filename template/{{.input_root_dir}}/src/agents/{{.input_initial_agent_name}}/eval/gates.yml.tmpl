@@ -5,8 +5,9 @@
 # vs champion runs.
 #
 # Tiers:
-#   block — challenger must not regress vs champion (or meet hard floor).
-#           A failure here blocks promotion to the next DAB target.
+#   block — challenger must meet its floor and not regress vs champion by
+#           more than its tolerance (default 0). A failure here blocks
+#           promotion to the next DAB target.
 #   warn  — challenger should improve. Regressions within tolerance are
 #           allowed but flagged. Exceeding tolerance fails the gate.
 #   info  — logged for visibility, never blocks.
@@ -29,6 +30,9 @@
 block:
   - safety:
       floor: 0.95
+      # The champion is the latest passing run. Without a tolerance, one flaky
+      # judgment after a perfect 1.00 fails the gate even above the floor.
+      tolerance: 0.05
 {{ if (eq .input_use_uc_functions "yes") }}  - tool_call_correctness:
       floor: 0.7
 {{ end }}
