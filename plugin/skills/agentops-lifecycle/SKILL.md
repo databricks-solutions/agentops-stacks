@@ -359,7 +359,7 @@ baseline run):
 ```yaml
 block:        # hard failures — block promotion if these regress
   - safety:
-      floor: 4.0    # must score ≥ 4.0 out of 5
+      floor: 0.95   # pass rate (0-1): at least 95% of responses judged safe
 
 warn:         # soft failures — log and flag, do not block
   - relevance:
@@ -369,27 +369,39 @@ info:         # always logged, never blocks
   - fluency
 ```
 
+Built-in judges answer yes/no per example, so every score is a 0–1 pass rate. With N
+examples one response moves the mean by 1/N: reach the 50–100 example target before
+tightening a floor. A block scorer that produces no metric fails the gate.
+
 ### Run the gate locally
+
+The gate reads the same settings CI does, straight from the bundle. In dev the schema
+carries the dev-mode prefix (e.g. `dev_<you>_my_agent`), so don't type it by hand:
 
 ```bash
 cd src/agents/my_agent
-export CATALOG=my_agent_dev
-export SCHEMA=my_agent
+eval "$(databricks bundle summary -t dev -o json | jq -r '"export CATALOG=\(.resources.schemas.project_schema.catalog_name) SCHEMA=\(.resources.schemas.project_schema.name) MLFLOW_EXPERIMENT_ID=\(.resources.experiments.experiment.id)"')"
 uv run python eval/evaluate_agent.py
 ```
+
+Tracking defaults to Databricks (`MLFLOW_TRACKING_URI=databricks`), so the judges run on
+Databricks-hosted models with your CLI credentials. If the eval table is missing the gate
+fails rather than falling back to sample data; set `EVAL_ALLOW_INLINE_DATASET=1` only for a
+local smoke run without a table.
 
 Expected output on pass:
 ```
 Gates config is valid.
 Scorers to run: ['Safety', 'RelevanceToQuery', 'Fluency']
-Loaded 50 examples from my_agent_dev.my_agent.my_agent_eval_dataset
+Loaded 50 examples from my_agent_dev.dev_you_my_agent.my_agent_eval_dataset
 Run ID: abc123...
+No champion found: first eval run. Floors still apply; there is no baseline to compare against.
 ============================================================
 EVALUATION GATE RESULTS
 ============================================================
-  PASS  safety: 4.600 (first run, no champion)
-  PASS  relevance: 4.100 (first run, no champion)
-  INFO  fluency: 4.500 (first run, no champion)
+  PASS  safety: 0.980 (first run, no champion)
+  PASS  relevance: 0.940 (first run, no champion)
+  PASS  fluency: 1.000 (first run, no champion)
 ============================================================
 Result: PASSED
 All gates passed. Agent is ready for promotion.
@@ -417,9 +429,9 @@ Reference the scorer name in `gates.yml` under `block`, `warn`, or `info`.
 
 ### Done when
 
-- Eval table `my_agent_dev.my_agent.my_agent_eval_dataset` has ≥20 examples.
+- Eval table `<catalog>.<schema>.my_agent_eval_dataset` has ≥20 examples.
 - `uv run python eval/evaluate_agent.py` exits 0 — all block thresholds met.
-- MLflow experiment `/Shared/my_agent_my_agent_eval` has at least one eval run.
+- The dev bundle experiment (`.resources.experiments.experiment.id` in `databricks bundle summary -t dev -o json`) has at least one eval run.
 
 ---
 
@@ -535,7 +547,7 @@ git push -u origin feature/my_agent_initial
 
 gh pr create \
   --title "[my_agent] Initial implementation + eval gate" \
-  --body "Adds agent code, eval dataset (50 examples in UC), eval gate (safety floor 4.0), and SME calibration sign-off."
+  --body "Adds agent code, eval dataset (50 examples in UC), eval gate (safety floor 0.95), and SME calibration sign-off."
 ```
 
 ### What CI runs
@@ -644,10 +656,12 @@ def test_agent_handles_empty_messages(agent_url):
 def test_mlflow_traces_logged(agent_url):
     """Each invocation must produce an MLflow trace."""
     client = mlflow.tracking.MlflowClient()
-    experiment = client.get_experiment_by_name("/Shared/my_agent_my_agent_eval")
+    # The App traces to the target's bundle experiment:
+    # MLFLOW_EXPERIMENT_ID from `databricks bundle summary -t staging -o json`.
+    experiment_id = os.environ["MLFLOW_EXPERIMENT_ID"]
     before_count = len(client.search_traces(
-        experiment_ids=[experiment.experiment_id], max_results=1000
-    )) if experiment else 0
+        experiment_ids=[experiment_id], max_results=1000
+    ))
     httpx.post(
         f"{agent_url}/invocations",
         headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
@@ -813,8 +827,7 @@ in Unity Catalog and re-run the eval gate:
 
 ```bash
 cd src/agents/my_agent
-export CATALOG=my_agent_prod
-export SCHEMA=my_agent
+eval "$(databricks bundle summary -t prod -o json | jq -r '"export CATALOG=\(.resources.schemas.project_schema.catalog_name) SCHEMA=\(.resources.schemas.project_schema.name) MLFLOW_EXPERIMENT_ID=\(.resources.experiments.experiment.id)"')"
 uv run python eval/evaluate_agent.py
 ```
 
@@ -862,7 +875,8 @@ are sent to the MLflow tracking server configured in the App environment
 ```bash
 # Check that traces appear in the prod MLflow experiment after a live request
 databricks experiments list --max-results 10
-# Find /Shared/my_agent_my_agent_eval and confirm recent runs exist
+# The prod bundle experiment is .resources.experiments.experiment.id in
+# `databricks bundle summary -t prod -o json`; confirm recent traces exist there
 ```
 
 No additional configuration is required — the App runtime provides workspace
@@ -983,8 +997,9 @@ If a step fails after 3 retries:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `uv run python eval/evaluate_agent.py` exits non-zero with "CATALOG not set" | Env vars not exported | `export CATALOG=my_agent_dev && export SCHEMA=my_agent` |
-| `Could not load eval table` in evaluate_agent.py | Eval dataset not yet created | Run `eval/create_dataset.py` as a Databricks notebook first |
+| `evaluate_agent.py` fails with "CATALOG and SCHEMA must be set" | Env vars not exported | Export them from the bundle (see Step 4, "Run the gate locally") |
+| `Could not load eval table` in evaluate_agent.py | Eval dataset not created in this target yet | Run `eval/create_dataset.py` against the target (see "Bootstrap each environment" in `docs/setup.md`) |
+| Gate reports `FAIL ... no metric produced` | Every judge call errored (e.g. tracking not pointed at Databricks) | Check the run's assessments in MLflow; leave `MLFLOW_TRACKING_URI` unset or `databricks` |
 | MLflow traces not appearing after App request | `mlflow.langchain.autolog()` disabled or DATABRICKS_HOST not set in App env | Confirm `mlflow.langchain.autolog()` is called in `agent.py`; check App env vars in `databricks.yml` |
 | CI eval gate fails after local gate passes | Different `CATALOG`/`SCHEMA` in CI vs. local | Ensure `DATABRICKS_TOKEN` and workspace host in CI point to the staging workspace where the eval table exists |
 | App returns HTTP 502 or connection refused | App not yet started or failed to deploy | Check App logs: `databricks apps logs <app-name>`; verify `app.yaml` entry point matches `start_server.py` |

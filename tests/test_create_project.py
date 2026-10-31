@@ -518,6 +518,37 @@ def test_gates_no_uc_omits_tool_call_correctness(tmp_path):
     assert "tool_call_correctness" not in content
 
 
+@pytest.mark.parametrize("uc", ["yes", "no"])
+def test_gate_floors_are_on_the_judge_scale(tmp_path, uc):
+    # Built-in judges report a 0-1 pass rate; a floor above 1 can never pass.
+    content = read_file(gen(tmp_path, input_use_uc_functions=uc), "src/agents/default/eval/gates.yml")
+    floors = [float(v) for v in re.findall(r"floor:\s*([0-9.]+)", content)]
+    assert floors and all(0 < f <= 1 for f in floors), floors
+
+
+def test_eval_gate_never_scores_sample_data_silently(tmp_path):
+    script = read_file(gen(tmp_path), "src/agents/default/eval/evaluate_agent.py")
+    # mlflow.genai.evaluate passes inputs as kwargs, so the parameter is the inputs key.
+    assert "def predict_fn(messages)" in script
+    # The inline set is opt-in only, and tracking defaults to Databricks (hosted judges).
+    assert "EVAL_ALLOW_INLINE_DATASET" in script
+    assert 'os.environ.get("MLFLOW_TRACKING_URI", "databricks")' in script
+
+
+def test_eval_gate_unit_tests_generated(tmp_path):
+    assert file_exists(gen(tmp_path), "tests/test_eval_gates.py")
+
+
+@pytest.mark.parametrize("workflow,target", [("ci", "staging"), ("cd-staging", "staging"), ("cd-prod", "prod")])
+def test_github_eval_gate_reads_target_settings_from_bundle(tmp_path, workflow, target):
+    content = read_file(gen(tmp_path), f".github/workflows/{DEFAULT_PROJECT_NAME}-bundle-{workflow}.yml")
+    gate = content[content.index("  eval_gate:"):]
+    assert f"databricks bundle summary -t {target} -o json" in gate
+    for var in ("DATABRICKS_HOST", "CATALOG", "SCHEMA", "MLFLOW_TRACKING_URI", "MLFLOW_EXPERIMENT_ID"):
+        assert var in gate, f"{var} not set for the {workflow} eval gate"
+    assert "databricks/setup-cli@" in gate
+
+
 # ---------------------------------------------------------------------------
 # Manifest content
 # ---------------------------------------------------------------------------

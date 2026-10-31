@@ -385,6 +385,25 @@ databricks bundle deploy -t dev --profile dev
 
 The first deploy creates the schema and the `artifacts` volume in `{{ .input_project_name }}_dev`. The MLflow experiment is created under `/Shared/{{ .input_project_name }}/dev` with the volume as artifact location.
 
+### Bootstrap each environment (once, before your first PR)
+
+The PR check runs the eval gate against **staging**, and the prod deploy runs it against **prod**, so each environment needs its schema and eval table before the gate's first run. Until then the gate fails with `Could not load eval table ...`. That's by design: it never scores sample data in place of your dataset.
+
+Do this once per environment, signed in as that environment's **service principal** (the credentials you stored for CI in section 5) and using **the CLI version CI pins** ({{ template `cli_version_tag` . }}):
+- **Deploy as that service principal.** Production-mode bundle state is kept per deploying identity, so a deploy as yourself would create a second, separate deployment.
+- **Use CI's CLI version.** A newer CLI writes state that CI can't read.
+
+```bash
+# From the project root, as the staging SP. Repeat with -t prod as the prod SP.
+databricks bundle deploy -t staging
+
+# Then, for each agent under src/agents/:
+cd src/agents/<agent>
+eval "$(databricks bundle summary -t staging -o json | jq -r '"export CATALOG=\(.resources.schemas.project_schema.catalog_name) SCHEMA=\(.resources.schemas.project_schema.name)"')"
+uv sync
+uv run python eval/create_dataset.py
+```
+
 After this, pushes to `main` deploy to staging via CI/CD, and tags matching `v*` deploy to prod.
 
 ---

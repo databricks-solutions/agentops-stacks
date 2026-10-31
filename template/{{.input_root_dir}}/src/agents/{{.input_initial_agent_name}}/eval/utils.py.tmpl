@@ -85,6 +85,11 @@ def validate_gates(config: dict) -> tuple[list[str], list[str]]:
                 errors.append(
                     f"'{scorer_name}' floor must be a number, got: {opts['floor']}"
                 )
+            elif "floor" in opts and opts["floor"] > 1:
+                warnings.append(
+                    f"'{scorer_name}' floor={opts['floor']} is above 1. Built-in judges "
+                    f"report a 0-1 pass rate, so a built-in scorer can never meet it."
+                )
 
             if "tolerance" in opts:
                 tol = opts["tolerance"]
@@ -150,7 +155,13 @@ def apply_gates(
     """Compare challenger metrics against champion using gate config.
 
     Returns (passed, report) where report is a list of result strings.
+
+    Fails closed: an evaluation that produced no metrics, or no metric for a
+    block-tier scorer, never passes (e.g. every judge call errored).
     """
+    if not challenger_metrics:
+        return False, ["  FAIL  evaluation produced no metrics (every scorer errored or none ran)"]
+
     passed = True
     report = []
 
@@ -167,7 +178,11 @@ def apply_gates(
             challenger_val = challenger_metrics.get(metric_key)
 
             if challenger_val is None:
-                report.append(f"  SKIP  {scorer_name} — no metric found")
+                if tier == "block":
+                    report.append(f"  FAIL  {scorer_name}: no metric produced (block scorers must score)")
+                    passed = False
+                else:
+                    report.append(f"  SKIP  {scorer_name}: no metric found")
                 continue
 
             # Check floor (absolute minimum)
