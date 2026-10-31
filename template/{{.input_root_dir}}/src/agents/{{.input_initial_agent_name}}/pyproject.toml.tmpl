@@ -12,6 +12,10 @@ dependencies = [
     "databricks-agents>=1.9.3",
     "langgraph>=1.1.0",
     "python-dotenv>=1.2.1",
+    # langchain-mcp-adapters (pulled in by databricks-langchain) imports symbols that
+    # mcp 2.x removed, so `import databricks_langchain` fails on mcp 2.x.
+    # Drop this bound once langchain-mcp-adapters supports mcp 2.x.
+    "mcp<2",
 {{ if (eq .input_use_vector_search "yes") }}    "databricks-vectorsearch",
 {{ end }}
 {{ if (eq .input_use_lakebase "yes") }}    # [memory] pulls langgraph-checkpoint-postgres + databricks-ai-bridge[memory]
@@ -19,9 +23,6 @@ dependencies = [
     "databricks-langchain[memory]>=0.19.0",
 {{ end }}
 ]
-
-[tool.uv]
-prerelease = "allow"
 
 [dependency-groups]
 dev = [

@@ -15,6 +15,7 @@ End-to-end configuration to get this project deploying. The flow:
 
 - Three Databricks workspaces (dev, staging, prod). They can be separate workspaces or environments within one workspace, as long as you can scope catalogs and identities per environment.
 - A Unity Catalog metastore attached to each workspace, with permission to create catalogs (or someone who can create them for you).
+- The Databricks CLI locally, at the version your CI pins ({{ template `cli_version_tag` . }}, set in the `databricks/setup-cli` steps of your CI files). Bundle deployment state written by a newer CLI can't be read by an older one, so if you ever deploy staging or prod from your machine with a newer CLI than CI's, the next CD run fails. When you upgrade the CLI, bump the CI pin with it.
 - {{ if (eq .input_cloud `azure`) -}}
 An Azure account with permission to create app registrations (for the staging and prod service principals).
 {{- else if (eq .input_cloud `aws`) -}}
@@ -404,7 +405,9 @@ After this, pushes to `main` deploy to staging via CI/CD, and tags matching `v*`
 
 **`The experiment was created with a bad artifact location`** — the `artifact_location` in `resources/experiment.yml` must have an explicit URI scheme (`dbfs:/Volumes/...`), not just `/Volumes/...`. `bundle validate` accepts either; only deploy enforces the scheme.
 
-**CI error: `Unable to verify checksums signature: openpgp: key expired` during Terraform download** — your pinned Databricks CLI in CI is too old for `bundle: engine: direct` and is falling back to the Terraform engine. Bump `cli_version` in `library/template_variables.tmpl` to v0.295.0 or later. `cli_version` is pinned to a commit SHA (not a tag), so resolve the target tag to its SHA first: `gh api repos/databricks/setup-cli/git/refs/tags/<tag> -q .object.sha`, then set that SHA and update the trailing version comment.
+**CI error: `Unable to verify checksums signature: openpgp: key expired` during Terraform download** — your pinned Databricks CLI in CI is too old for `bundle: engine: direct` and is falling back to the Terraform engine. Bump the pinned `databricks/setup-cli` commit in your CI files to v0.295.0 or later (see the next entry for how).
+
+**CD error: `state version N is newer than supported version M; upgrade the CLI`** — someone deployed this target with a newer Databricks CLI than CI's, and CI's CLI can't read the state it wrote. Bump the CI pin to at least the version that deployed. The pin is a commit SHA (not a tag) in the `databricks/setup-cli` steps of your CI files ({{ if (eq .input_cicd_platform `gitlab`) }}`.gitlab/pipelines/`{{ else if (eq .input_cicd_platform `azure_devops`) }}`.azure/devops-pipelines/`{{ else }}`.github/workflows/`{{ end }}). Resolve the tag to its SHA with `gh api repos/databricks/setup-cli/git/refs/tags/<tag> -q .object.sha`, replace every occurrence, and update the trailing version comment.
 {{ if (eq .input_use_lakebase `yes`) }}
 **Agent memory silently doesn't work — app logs show `permission denied for schema public` / `CREATE TABLE ... checkpoint_migrations` / `store_migrations`** — the app service principal can connect to Lakebase but lacks `CREATE ON SCHEMA public`, so the memory SDK can't create its tables and the agent degrades to running without memory. Grant it once as the database owner — see the grant step in section 2e.
 
