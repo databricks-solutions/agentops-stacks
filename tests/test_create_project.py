@@ -7,6 +7,8 @@ tests/test_create_project.py pattern, adapted to the agentops-stacks schema.
 Grounded against the real output of Databricks CLI v1.1.0.
 """
 
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -210,6 +212,44 @@ def test_github_workflow_files_contain_project_name(tmp_path):
     p = gen(tmp_path, input_cicd_platform="github_actions")
     github_files = [f for f in paths(p) if ".github" in f]
     assert any(DEFAULT_PROJECT_NAME in f for f in github_files)
+
+
+# ---------------------------------------------------------------------------
+# CI Databricks CLI pin. CI must read bundle state written by any CLI that can
+# scaffold this template, so its pin is never older than the schema minimum.
+# ---------------------------------------------------------------------------
+
+SETUP_CLI_SHA = re.compile(r"databricks/setup-cli[@/]([0-9a-f]{40})")
+SETUP_CLI_TAG = re.compile(r"databricks/setup-cli@[0-9a-f]{40} # (v\d+\.\d+\.\d+)")
+
+
+def _version(tag):
+    return tuple(int(part) for part in tag.lstrip("v").split("."))
+
+
+def _ci_text(project):
+    ci_dirs = (".github/", ".gitlab/", ".azure/")
+    return "\n".join(read_file(project, f) for f in sorted(paths(project)) if f.startswith(ci_dirs))
+
+
+def test_ci_cli_pin_meets_template_minimum(tmp_path):
+    minimum = json.loads(
+        (Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "databricks_template_schema.json").read_text()
+    )["min_databricks_cli_version"]
+    tags = SETUP_CLI_TAG.findall(_ci_text(gen(tmp_path, input_cicd_platform="github_actions")))
+    assert tags, "setup-cli steps must pin a commit SHA with a vX.Y.Z version comment"
+    for tag in tags:
+        assert _version(tag) >= _version(minimum), f"CI pins setup-cli {tag} < template minimum {minimum}"
+
+
+@pytest.mark.parametrize("platform", list(CICD_MATRIX))
+def test_ci_cli_pin_is_one_sha_across_platforms(tmp_path, platform):
+    (tmp_path / "github").mkdir()
+    (tmp_path / "other").mkdir()
+    github = set(SETUP_CLI_SHA.findall(_ci_text(gen(tmp_path / "github", input_cicd_platform="github_actions"))))
+    pinned = set(SETUP_CLI_SHA.findall(_ci_text(gen(tmp_path / "other", input_cicd_platform=platform))))
+    assert pinned, f"no pinned setup-cli found for {platform}"
+    assert pinned == github, f"{platform} pins {pinned}, GitHub pins {github}"
 
 
 # ---------------------------------------------------------------------------
