@@ -20,6 +20,6 @@ GitHub Actions workflows for validating and deploying **{{ .input_project_name }
 
 ## Conditional jobs
 
-The `eval_gate` and `governance_check` jobs use `hashFiles()` to detect the presence of `evaluation/thresholds.yml` and `governance/posture.md` respectively. They skip when those files aren't present — so the bare scaffold's pipelines run cleanly until you apply the eval and governance patterns.
+The `eval_gate` and `governance_check` jobs run only when a small `detect_patterns` job finds `src/agents/*/eval/gates.yml` (scaffolded for every agent) and `governance/posture.md` respectively; `hashFiles()` can't be used in a job-level `if:`. The eval gate runs once per agent and fails closed. The governance check skips until you add the posture doc.
 
 For project-level setup details, see the [project README](../../README.md).

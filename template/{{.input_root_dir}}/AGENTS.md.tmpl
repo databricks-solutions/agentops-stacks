@@ -73,7 +73,7 @@ This is a fresh AgentOps Stacks scaffold. The CI/CD pipelines are wired but the 
 
 | Pattern | What to add | Why |
 |---|---|---|
-| **Eval gates** | `evaluation/thresholds.yml` + `evaluation/gate.py` | CI workflows auto-detect them and refuse to promote when thresholds are breached |
+| **Eval gates** | Already scaffolded per agent: `src/agents/<agent>/eval/gates.yml` + `eval/evaluate_agent.py`. Build each environment's eval table (see "Bootstrap each environment" in `docs/setup.md`) and tune `gates.yml` | CI runs them on every PR and after each staging/prod deploy, and blocks promotion when a gate fails or nothing could be scored |
 | **Governance posture** | `governance/posture.md` (DASF mapping) and `governance/data_flows.md` | Prod-promotion workflow verifies posture is documented |
 | **Monitoring** | Trace destination configured in code + alert rules per serving endpoint | Production observability and on-call response |
 
@@ -86,11 +86,11 @@ Offer the user:
 1. **Verify configuration is complete.** Open `docs/setup.md` and confirm: UC catalogs exist, CLI profiles are configured, workspace hosts are filled in `databricks.yml`, CI/CD credentials are set up. Surface anything missing.
 2. **Help them validate.** Run `databricks bundle validate -t dev --profile <dev-profile>`. Resolve any errors.
 3. **Ask what they want to build.** The solution code goes in `src/`.
-4. **Recommend the first production pattern.** Once they have working code, suggest adding eval gates (the lightest-weight production pattern and the one CI workflows are already wired for).
+4. **Recommend the first production pattern.** Once they have working code, suggest growing the eval dataset and tuning `eval/gates.yml`. The eval gate is already scaffolded and wired into CI.
 
 ## Coding agent guidance
 
-- In DAB resource YAML, reference catalog/schema via `${var.catalog}` and `${var.schema}` — never hardcode. In Python code at runtime, read them from env vars wired by the resource's `env` block (see UC conventions above).
+- In DAB resource YAML, never hardcode catalog/schema: use `${var.catalog}` and, for anything the bundle creates, the bundle's schema `${resources.schemas.project_schema.name}` (dev-prefixed in development mode). Use `${var.schema}` only for assets created outside the bundle. In Python code at runtime, read `CATALOG`/`SCHEMA` from the App's env (`resources.apps.<agent>.config.env` in `databricks.yml`).
 - Do not add inline secrets to `databricks.yml` or workflow files. Use Databricks secret scopes or platform secret stores (GitHub Secrets, GitLab CI/CD variables, Azure DevOps variable groups).
 - Production code must not use user-scoped workspace paths (`/Users/...`) — DAB production mode rejects them.
 - Prefer YAML resource definitions over Python (pydabs) unless there's a specific reason; YAML stays readable for non-coders.
