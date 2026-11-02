@@ -15,6 +15,9 @@ import sys
 from pathlib import Path
 
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,}$")
+# Each agent's App is named <project>-<agent> (underscores as hyphens), and
+# Databricks App names are limited to 30 characters.
+APP_NAME_MAX = 30
 VALID_CLOUDS = {"aws", "azure", "gcp"}
 VALID_CICD = {
     "github_actions",
@@ -50,6 +53,13 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
         errors.append(
             f"Invalid initial_agent_name '{agent_name}'. "
             "Same rules as project_name: lowercase letters/digits/underscores, min 3 chars."
+        )
+
+    app_name = f"{name}-{agent_name}".replace("_", "-")
+    if NAME_PATTERN.match(name) and NAME_PATTERN.match(agent_name) and len(app_name) > APP_NAME_MAX:
+        errors.append(
+            f"The agent App would be named '{app_name}' ({len(app_name)} characters), but Databricks "
+            f"App names are limited to {APP_NAME_MAX}. Shorten project_name or initial_agent_name."
         )
 
     cloud = config.get("input_cloud", "")

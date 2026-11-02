@@ -4,7 +4,7 @@
 
 Surface these to the user after a successful scaffold:
 
-1. `cd <destination>/<project_name>`
+1. `cd <destination>/<project_name>`. Make this folder the root of its git repository (`git init`, or push it as a new repo): the CI/CD workflows only run from a repo root.
 2. Review `.agentops-stacks/manifest.yml` and `databricks.yml`
 3. Set workspace hosts and Unity Catalog grants — see `docs/setup.md` in the rendered project
 4. `cd src/agents/<agent> && uv sync` for each agent (generates that agent's `uv.lock`; commit it, after checking it resolves from public PyPI: see `docs/setup.md` section 3)

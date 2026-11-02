@@ -50,6 +50,15 @@ fi
 
 # --- Run bundle init ---
 PROJECT_NAME=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['input_project_name'])" "$CONFIG_FILE")
+
+# --- Warn if the project will land inside an existing git repo ---
+# Git hosts only run CI/CD files from a repo's root, and <project_name>/ won't be one.
+if command -v git &>/dev/null && REPO_ROOT=$(git -C "$DESTINATION" rev-parse --show-toplevel 2>/dev/null); then
+  echo "WARNING: ${DESTINATION} is inside the git repo ${REPO_ROOT}, so the generated CI/CD files" >&2
+  echo "  will land in ${PROJECT_NAME}/ and won't run. To use them, make ${PROJECT_NAME}/ the root of" >&2
+  echo "  its own repo, or move its contents (including dot-directories) to the repo root." >&2
+fi
+
 echo "Scaffolding ${PROJECT_NAME} into ${DESTINATION}/ ..."
 
 if ! databricks bundle init "$TEMPLATE_SOURCE" \

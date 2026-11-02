@@ -15,6 +15,10 @@
 - `databricks --version` returns nothing in Genie Code — expected. The wrapped CLI doesn't expose a version. Skip the version check; let `bundle init` errors surface if anything is wrong.
 - A Git folder can host multiple bundles as sibling subdirectories — the Workspace UI's Deployments pane is scoped per-bundle, not per-Git-folder. Re-running the scaffold against the same Git folder with a different `project_name` creates a coexisting bundle alongside existing ones.
 
+## CI/CD in a Git folder
+
+The generated CI/CD files (`.github/workflows/`, `.gitlab-ci.yml`, `.azure/`) assume the bundle is the root of its repository; git hosts only run them from there. In the canonical flow above, the bundle is `<git-folder>/<project_name>/`, so the Deployments panel works but the CI/CD workflows never trigger, and `scaffold.sh` prints a warning saying so. If the user wants CI/CD, move the contents of `<project_name>/` (including dot-directories) to the Git folder root, as described below, before the first push. That leaves one bundle per repo.
+
 ## Scaffold-in-place limitation
 
 `databricks bundle init` always creates `<destination>/<project_name>/`. There is no native flag to scaffold *into* an existing empty directory. If the user wants the scaffold contents at the root of an existing repo (instead of inside a subdirectory), scaffold to a temp location and `mv` the contents into place after. Don't attempt to outsmart the CLI with input_root_dir tricks — the path concatenation breaks in subtle ways.

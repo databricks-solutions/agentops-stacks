@@ -216,6 +216,13 @@ def main():
     project_root = find_project_root(Path(args.project_dir))
     print(f"Project root: {project_root}")
 
+    # The App is named <project>-<agent>; Databricks App names are limited to 30 characters.
+    app_name = f"{get_project_name(project_root)}-{args.name}".replace("_", "-")
+    if len(app_name) > 30:
+        print(f"ERROR: The agent App would be named '{app_name}' ({len(app_name)} characters), "
+              "but Databricks App names are limited to 30. Choose a shorter agent name.")
+        sys.exit(1)
+
     # Find source agent
     existing = find_existing_agents(project_root)
     if not existing:

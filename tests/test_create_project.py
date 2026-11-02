@@ -8,6 +8,7 @@ Grounded against the real output of Databricks CLI v1.1.0.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -112,8 +113,16 @@ def test_default_project_core_files(tmp_path):
 def test_default_base_resources(tmp_path):
     p = gen(tmp_path)
     # These resources are always emitted regardless of component choices.
-    for f in ["experiment.yml", "schemas.yml", "volumes.yml", "uc_function_registration.yml"]:
+    for f in ["experiment.yml", "schemas.yml", "volumes.yml"]:
         assert file_exists(p, f"resources/{f}"), f"Missing resources/{f}"
+
+
+@pytest.mark.parametrize("uc", ["yes", "no"])
+def test_uc_registration_job_only_with_uc_functions(tmp_path, uc):
+    # The job runs src/components/tools/registry.py, which only exists with UC functions on.
+    p = gen(tmp_path, input_use_uc_functions=uc)
+    assert file_exists(p, "resources/uc_function_registration.yml") == (uc == "yes")
+    assert file_exists(p, "src/components/tools/registry.py") == (uc == "yes")
 
 
 def test_shared_eval_scorers_present(tmp_path):
@@ -853,10 +862,11 @@ def test_add_agent_inherits_the_source_app_env(tmp_path):
     project = tmp_path / "copy"
     shutil.copytree(gen(tmp_path, input_use_lakebase="yes"), project)  # don't mutate the cached render
     script = Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "plugin/skills/agentops-stacks/scripts/add_agent.py"
-    subprocess.run([sys.executable, str(script), "--name", "support_bot", "--from", "default",
+    # "support" keeps the App name, my-agentops-project-support, within the 30-character cap.
+    subprocess.run([sys.executable, str(script), "--name", "support", "--from", "default",
                     "--project-dir", str(project)], check=True, capture_output=True, text=True)
     yml = read_file(project, "databricks.yml")
-    app = _app_block(yml, "support_bot")
+    app = _app_block(yml, "support")
     assert "LAKEBASE_ENDPOINT" in app and 'value_from: "experiment"' in app
     assert 'permission: "WRITE_VOLUME"' in app and "--no-dev" in app
     assert f"artifact_location: dbfs:/Volumes/${{var.catalog}}/{BUNDLE_SCHEMA}/artifacts" in yml
@@ -971,3 +981,69 @@ def test_governance_check_is_only_described_where_it_exists(tmp_path, platform, 
     for f in ("AGENTS.md", "README.md"):
         line = next(l for l in read_file(p, f).splitlines() if "**Governance posture**" in l)
         assert ("workflow" in line) == has_check, f"{f}: {line}"
+
+
+# ---------------------------------------------------------------------------
+# Plugin: installer, App-name cap
+# ---------------------------------------------------------------------------
+
+
+def test_generated_readme_points_at_the_plugin_repo(tmp_path):
+    # plugin/ isn't part of a generated project, so a relative installer path can't work.
+    readme = read_file(gen(tmp_path), "README.md")
+    assert "`./plugin/skills/install_skills.sh`" not in readme
+    assert "https://github.com/databricks-solutions/agentops-stacks" in readme
+
+
+@pytest.mark.parametrize("project,ok", [("abcdefghijklmnopqrstuv", True), ("abcdefghijklmnopqrstuvw", False)],
+                         ids=["30_chars", "31_chars"])
+def test_app_name_cap_is_enforced_at_init(tmp_path, project, ok):
+    # The App is <project>-<agent>; Databricks App names are limited to 30 characters.
+    params = {"input_project_name": project, "input_root_dir": project}
+    if ok:
+        gen(tmp_path, **params)
+    else:
+        with pytest.raises(RuntimeError, match="limited to 30"):
+            gen(tmp_path, **params)
+
+
+def test_validator_rejects_an_app_name_over_30_chars():
+    errors, _ = _validate(input_project_name="customer_support_assistant", input_root_dir="customer_support_assistant",
+                          input_initial_agent_name="default")
+    assert any("customer-support-assistant-default" in e and "30" in e for e in errors)
+
+
+def test_add_agent_rejects_an_app_name_over_30_chars(tmp_path):
+    project = tmp_path / "copy"
+    shutil.copytree(gen(tmp_path), project)
+    script = Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "plugin/skills/agentops-stacks/scripts/add_agent.py"
+    r = subprocess.run([sys.executable, str(script), "--name", "support_bot", "--project-dir", str(project)],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "my-agentops-project-support-bot" in r.stdout
+    assert not (project / "src/agents/support_bot").exists()
+
+
+def test_installer_copies_whole_skills_and_commands(tmp_path):
+    installer = Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "plugin/skills/install_skills.sh"
+    (tmp_path / "databricks.yml").write_text("")  # looks like a project root, so no prompt
+    subprocess.run(["bash", str(installer)], cwd=tmp_path, check=True, capture_output=True, text=True,
+                   env={**os.environ, "HOME": str(tmp_path)})
+    plugin = Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "plugin"
+    for skill in ("agentops-stacks", "agentops-bigbook"):
+        expected = {f.relative_to(plugin / "skills" / skill) for f in (plugin / "skills" / skill).rglob("*")
+                    if f.is_file() and "__pycache__" not in f.parts}
+        installed = {f.relative_to(tmp_path / ".claude/skills" / skill)
+                     for f in (tmp_path / ".claude/skills" / skill).rglob("*") if f.is_file()}
+        assert installed == expected, skill
+    commands = {f.name for f in (tmp_path / ".claude/commands").glob("*.md")}
+    assert commands == {f.name for f in (plugin / "commands").glob("*.md")}
+    assert "add-agent.md" in commands
+
+
+def test_genie_notebook_installs_the_same_skills_as_the_installer():
+    plugin = Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY) / "plugin/skills"
+    shell = re.search(r"^SKILL_NAMES=\((.*)\)$", (plugin / "install_skills.sh").read_text(), re.M).group(1)
+    notebook = re.search(r"^SKILLS = \[(.*)\]$", (plugin / "install_genie_code_skills.py").read_text(), re.M).group(1)
+    names = lambda s: re.findall(r'"([a-z-]+)"', s)
+    on_disk = {d.name for d in plugin.iterdir() if (d / "SKILL.md").exists()}
+    assert set(names(shell)) == set(names(notebook)) == on_disk

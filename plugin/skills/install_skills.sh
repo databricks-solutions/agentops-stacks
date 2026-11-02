@@ -2,10 +2,11 @@
 #
 # agentops-stacks plugin installer
 #
-# Installs agentops-stacks skills (SKILL.md files) into a project at
-# .claude/skills/<skill-name>/. Skills shell out to the Databricks CLI and
-# reference the template tree, schema, and workflow definitions from this repo
-# at run time — nothing is vendored next to the skill files.
+# Installs the agentops-stacks skills into a project at .claude/skills/<skill-name>/
+# (each skill's whole directory: SKILL.md plus its scripts/, reference/ or
+# resources/), and the plugin's slash commands into .claude/commands/. Skills
+# shell out to the Databricks CLI and read the template from this repo's git
+# URL at run time.
 #
 # Usage:
 #   ./install_skills.sh                              # install from local repo
@@ -24,6 +25,7 @@ NC='\033[0m'
 
 SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "right-size-capability" "vector-search-ops" "lakebase-ops" "uc-functions-ops" "usage-tracking-ops")
 SKILLS_DIR=".claude/skills"
+COMMANDS_DIR=".claude/commands"
 INSTALL_TO_GENIE=false
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,10 +111,23 @@ install_skill() {
         return 1
     fi
 
+    # Copy the whole skill: SKILL.md refers to its own scripts/, reference/ and resources/.
     rm -rf "$dest"
     mkdir -p "$dest"
-    cp "$src/SKILL.md" "$dest/SKILL.md"
-    echo -e "  ${GREEN}✓${NC} $skill_name/SKILL.md"
+    cp -R "$src/." "$dest/"
+    find "$dest" -name __pycache__ -type d -prune -exec rm -rf {} +
+    echo -e "  ${GREEN}✓${NC} $skill_name/ ($(find "$dest" -type f | wc -l | tr -d ' ') files)"
+}
+
+install_commands() {
+    local src="$SCRIPT_DIR/../commands"
+    [ -d "$src" ] || return 0
+    mkdir -p "$COMMANDS_DIR"
+    local cmd
+    for cmd in "$src"/*.md; do
+        cp "$cmd" "$COMMANDS_DIR/"
+        echo -e "  ${GREEN}✓${NC} /$(basename "$cmd" .md)"
+    done
 }
 
 check_prereqs() {
@@ -124,13 +139,13 @@ check_prereqs() {
 
     # ai-dev-kit is a soft prereq — needed for post-scaffold work but not for
     # the scaffold step itself. Best-effort detection across plugin install
-    # layouts (Claude Code plugin cache, vibe marketplace, explicit skills).
+    # layouts (Claude Code plugin cache, vibe marketplace, skills installed in
+    # this project or at user scope; current releases ship both bundle-skill names).
     local adk_found=false
     for candidate in \
         "$HOME/.claude/plugins/cache"/*/databricks-ai-dev-kit \
         "$HOME/.vibe/marketplace/plugins/databricks-ai-dev-kit" \
-        ".claude/skills/databricks-bundles" \
-        ".claude/skills/databricks-mlflow-evaluation"; do
+        {.claude,"$HOME/.claude"}/skills/{databricks-bundles,databricks-asset-bundles,databricks-mlflow-evaluation}; do
         if [ -e "$candidate" ]; then
             adk_found=true
             break
@@ -164,11 +179,13 @@ upload_skill_to_genie_workspace() {
         return 0
     fi
 
+    # Upload the whole skill directory, so its scripts and reference files come along.
     echo -e "  ${GREEN}Uploading${NC} $skill_name"
-    databricks workspace mkdirs "$skills_path/$skill_name" --profile "$db_profile" 2>/dev/null || true
-    databricks workspace import "$skills_path/$skill_name/SKILL.md" \
-        --file "$skill_dir/SKILL.md" --profile "$db_profile" \
-        --format AUTO --overwrite 2>/dev/null || true
+    if ! databricks workspace import-dir "$skill_dir" "$skills_path/$skill_name" \
+        --overwrite --profile "$db_profile" >/dev/null; then
+        echo -e "  ${RED}✗${NC} $skill_name failed to upload"
+        return 1
+    fi
 }
 
 install_skills_to_genie_workspace() {
@@ -211,7 +228,7 @@ install_skills_to_genie_workspace() {
     local skill_dir
     for skill_dir in "$abs_skills_dir"/*/; do
         [ -d "$skill_dir" ] || continue
-        upload_skill_to_genie_workspace "$skill_dir" "$skills_path" "$DB_PROFILE"
+        upload_skill_to_genie_workspace "$skill_dir" "$skills_path" "$DB_PROFILE" || return 1
     done
 
     echo ""
@@ -287,10 +304,14 @@ for skill in "${SKILL_NAMES[@]}"; do
     install_skill "$skill"
 done
 
+echo -e "${GREEN}Installing commands...${NC}"
+install_commands
+
 echo ""
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}Installation complete.${NC}"
 echo -e "${BLUE}Skills installed to: ${SKILLS_DIR}/${NC}"
+echo -e "${BLUE}Commands installed to: ${COMMANDS_DIR}/${NC}"
 echo ""
 
 if [ "$INSTALL_TO_GENIE" = true ]; then

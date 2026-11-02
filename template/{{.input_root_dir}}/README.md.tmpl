@@ -50,7 +50,7 @@ Evaluation gates are pre-scaffolded under `src/agents/<name>/eval/`. Governance 
 - **Usage tracking** — resources are tagged with `project`, `environment`, and `agent` for cost attribution in `system.billing.usage`. Serverless usage is tagged through a serverless usage policy. See [`docs/usage-tracking.md`](docs/usage-tracking.md).
 {{- end }}
 
-Use the agentops-stacks plugin (Claude Code, Cursor, or Genie Code) for interactive guidance. Install with `./plugin/skills/install_skills.sh` or run the `install_genie_code_skills.py` notebook. Then say "walk me through the agentops lifecycle" or run `/agentops-lifecycle`.
+Use the agentops-stacks plugin (Claude Code, Cursor, or Genie Code) for interactive guidance. It lives in the [agentops-stacks repo](https://github.com/databricks-solutions/agentops-stacks), not in this project: clone that repo and run `<clone>/plugin/skills/install_skills.sh` from this project's root, or run its `plugin/skills/install_genie_code_skills.py` notebook in your workspace. Then say "walk me through the agentops lifecycle" or run `/agentops-lifecycle`.
 
 ## Resources
 
