@@ -570,13 +570,14 @@ jobs:
   eval_gate:
     # if: detect_patterns outputs has_eval == 'true'
     # for each src/agents/*/eval/gates.yml:
-    #   cd <agent_dir> && uv sync && uv run python eval/evaluate_agent.py
-    # uses DATABRICKS_TOKEN: ${{ secrets.STAGING_WORKSPACE_TOKEN }}
+    #   cd <agent_dir> && uv sync --frozen && uv run python eval/evaluate_agent.py
+    # host, catalog, schema, experiment: from `databricks bundle summary -t staging -o json`
+    # auth: DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET from the staging SP's secrets
 ```
 
 CI secrets required (set in GitHub repo settings before opening the PR):
-- `STAGING_WORKSPACE_TOKEN` — staging workspace token (or OIDC service principal)
-- `DATABRICKS_HOST` — staging workspace URL (set in `databricks.yml` targets.staging)
+- `STAGING_SP_CLIENT_ID` / `STAGING_SP_CLIENT_SECRET` — the staging service principal's OAuth credentials (see `docs/setup.md` section 5)
+- The workspace host is not a secret: CI reads it from `targets.staging.workspace.host` in `databricks.yml`
 
 ### Address failures
 
@@ -1008,7 +1009,7 @@ If a step fails after 3 retries:
 | App returns HTTP 502 or connection refused | App not yet started or failed to deploy | Check App logs: `databricks apps logs <app-name>`; verify the App's `config.command` in `databricks.yml` points at `app/start_server.py`; after a deploy, run `databricks bundle run <agent>` |
 | `uv sync` fails in CI | No `uv.lock` committed | Run `uv sync` locally from `src/agents/<name>/`, commit `uv.lock` |
 | VS index query returns no results | Index not synced after data write | Trigger a manual sync: `w.vector_search_indexes.sync_index("my_agent_dev.my_agent.docs_index")` |
-| `databricks bundle deploy -t staging` fails with auth error | Service principal not configured in CI secrets | Set `STAGING_WORKSPACE_TOKEN` secret in GitHub repo settings |
+| `databricks bundle deploy -t staging` fails with auth error | Service principal not configured in CI secrets | Set `STAGING_SP_CLIENT_ID` and `STAGING_SP_CLIENT_SECRET` in the repo's CI secrets |
 
 ---
 

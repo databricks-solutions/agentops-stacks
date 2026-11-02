@@ -149,7 +149,7 @@ bash scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination
 See [reference/post-scaffold.md](reference/post-scaffold.md) for the full next-steps checklist.
 
 After scaffolding:
-1. `cd <destination>/<project_name>` and run `uv sync`
+1. `cd <destination>/<project_name>/src/agents/<agent>` and run `uv sync` (each agent has its own `pyproject.toml` and `uv.lock`)
 2. Set workspace hosts in `databricks.yml` and create Unity Catalog catalogs — see `docs/setup.md`
 3. `databricks bundle validate -t dev`
 4. `databricks bundle deploy -t dev` to deploy, then `databricks bundle run <agent> -t dev` to ship the code to the agent App and start it

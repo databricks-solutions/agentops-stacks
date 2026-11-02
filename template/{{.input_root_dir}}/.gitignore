@@ -9,8 +9,9 @@ mlruns
 .dbx
 # Local env / secrets (use .env.example as a template)
 .env
-# Exclude local environment directory
+# Exclude local environment directories (uv creates .venv/ in each agent)
 venv
+.venv/
 # Exclude local distribution/packaging directories
 *.egg-info/
 build

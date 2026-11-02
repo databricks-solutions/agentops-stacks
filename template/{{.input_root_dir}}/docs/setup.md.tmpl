@@ -115,7 +115,7 @@ targets:
 For AWS:
 
 1. In the Databricks account console → Service principals → Add. Create one SP for staging and one for prod.
-2. Generate an OAuth secret (client ID + client secret) for each SP.
+2. Generate an OAuth secret (client ID + client secret) for each SP (account console → the SP → Secrets → Generate secret; or, as a workspace admin, `databricks service-principal-secrets-proxy create <sp-id>`). CI authenticates with these as `<ENV>_SP_CLIENT_ID` / `<ENV>_SP_CLIENT_SECRET` (section 5), so no personal access token is needed.
 3. Add each SP to the appropriate workspace and grant the Unity Catalog permissions from step 2b.
 4. Update `databricks.yml` to reference the SP in `run_as`:
 
@@ -132,7 +132,7 @@ For AWS:
 For GCP:
 
 1. In the Databricks account console → Service principals → Add. Create one SP for staging and one for prod (Databricks-managed SP, not a GCP service account directly).
-2. Generate an OAuth secret for each.
+2. Generate an OAuth secret (client ID + client secret) for each (account console → the SP → Secrets → Generate secret; or, as a workspace admin, `databricks service-principal-secrets-proxy create <sp-id>`). CI authenticates with these as `<ENV>_SP_CLIENT_ID` / `<ENV>_SP_CLIENT_SECRET` (section 5), so no personal access token is needed.
 3. Grant Unity Catalog permissions per step 2b.
 4. Update `databricks.yml` to reference the SP in `run_as`:
 
@@ -239,13 +239,22 @@ This stores credentials in `~/.databrickscfg`. Verify with `databricks current-u
 
 Optional: profiles for staging and prod can be configured the same way if you need to inspect or troubleshoot those workspaces locally. Day-to-day deploys to staging and prod go through CI/CD, not your machine.
 
-Sync dependencies:
+Sync dependencies. Each agent is its own App with its own `pyproject.toml`, so run this in each agent's folder (there's no `pyproject.toml` at the project root):
 
 ```bash
+cd src/agents/{{ .input_initial_agent_name }}
 uv sync
 ```
 
-This generates `uv.lock` (the resolved dependency tree). **Commit `uv.lock` to git** — CI workflows cache against it, and committing it gives deterministic builds across local and CI environments.
+This generates the agent's `uv.lock` (the resolved dependency tree). **Commit each agent's `uv.lock` to git.** CI installs exactly what it pins, and the Databricks App build downloads every package from the URLs recorded in it.
+
+So the committed lock must resolve against a package index that **Databricks Apps and CI can reach**. If your machine is configured with a private or corporate index (Artifactory, Nexus, an internal PyPI proxy), the lock records that host, and the App build fails with `404` on the first package. Check before committing:
+
+```bash
+grep -h 'registry = ' src/agents/*/uv.lock | sort | uniq -c   # expect only https://pypi.org/simple
+```
+
+If it shows your private index, re-lock against public PyPI from a network that can reach it (`uv lock --default-index https://pypi.org/simple`), or point both at an index the App build can reach.
 
 `databricks-connect` is a dev dependency — pin it in `pyproject.toml` to match your cluster's runtime version if you'll be running Spark code locally against a remote cluster.
 
@@ -312,14 +321,20 @@ gh secret set PROD_AZURE_SP_CLIENT_SECRET --repo <org>/<repo> --body "<password>
 {{ else -}}
 | Secret | Value |
 |---|---|
-| `STAGING_WORKSPACE_TOKEN` | Personal access token (or M2M OAuth token) for the staging workspace's service principal |
-| `PROD_WORKSPACE_TOKEN` | Personal access token (or M2M OAuth token) for the prod workspace's service principal |
+| `STAGING_SP_CLIENT_ID` | Client ID (application ID) of the staging service principal |
+| `STAGING_SP_CLIENT_SECRET` | OAuth secret of the staging service principal (section 2c) |
+| `PROD_SP_CLIENT_ID` | Client ID (application ID) of the prod service principal |
+| `PROD_SP_CLIENT_SECRET` | OAuth secret of the prod service principal |
+
+The workflows pass these as `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`, so the CLI and SDK authenticate with OAuth machine-to-machine. No personal access token is needed; many workspaces restrict PATs to admins anyway.
 
 Via `gh` CLI:
 
 ```bash
-gh secret set STAGING_WORKSPACE_TOKEN --repo <org>/<repo> --body "<token>"
-gh secret set PROD_WORKSPACE_TOKEN --repo <org>/<repo> --body "<token>"
+gh secret set STAGING_SP_CLIENT_ID --repo <org>/<repo> --body "<staging-sp-application-id>"
+gh secret set STAGING_SP_CLIENT_SECRET --repo <org>/<repo> --body "<staging-sp-oauth-secret>"
+gh secret set PROD_SP_CLIENT_ID --repo <org>/<repo> --body "<prod-sp-application-id>"
+gh secret set PROD_SP_CLIENT_SECRET --repo <org>/<repo> --body "<prod-sp-oauth-secret>"
 ```
 {{- end }}
 
@@ -341,8 +356,10 @@ In the project, go to **Settings → CI/CD → Variables** and add the following
 {{ else -}}
 | Variable | Value |
 |---|---|
-| `STAGING_WORKSPACE_TOKEN` | PAT or OAuth token for the staging service principal (mark masked) |
-| `PROD_WORKSPACE_TOKEN` | PAT or OAuth token for the prod service principal (mark masked) |
+| `STAGING_SP_CLIENT_ID` | Client ID (application ID) of the staging service principal |
+| `STAGING_SP_CLIENT_SECRET` | OAuth secret of the staging service principal (mark masked) |
+| `PROD_SP_CLIENT_ID` | Client ID (application ID) of the prod service principal |
+| `PROD_SP_CLIENT_SECRET` | OAuth secret of the prod service principal (mark masked) |
 {{- end }}
 
 In **Settings → CI/CD → General pipelines → CI/CD configuration file**, set the path to:
@@ -369,8 +386,10 @@ Under **Deployments → Environments**, create `staging` and `production` enviro
    {{ else -}}
    | Variable | Value | Mark secret |
    |---|---|---|
-   | `STAGING_WORKSPACE_TOKEN` | PAT or OAuth token for the staging service principal | yes |
-   | `PROD_WORKSPACE_TOKEN` | PAT or OAuth token for the prod service principal | yes |
+   | `STAGING_SP_CLIENT_ID` | Client ID (application ID) of the staging service principal | no |
+   | `STAGING_SP_CLIENT_SECRET` | OAuth secret of the staging service principal | yes |
+   | `PROD_SP_CLIENT_ID` | Client ID (application ID) of the prod service principal | no |
+   | `PROD_SP_CLIENT_SECRET` | OAuth secret of the prod service principal | yes |
    {{- end }}
 
 2. Create a **new pipeline** under **Pipelines → Pipelines → New pipeline → Azure Repos Git** → select this repo → **Existing Azure Pipelines YAML file** → pick `.azure/devops-pipelines/{{ .input_project_name }}-bundle-cicd.yml`.
