@@ -2,21 +2,24 @@
 # MAGIC %md
 # MAGIC # Install agentops-stacks Skills for Genie Code
 # MAGIC
-# MAGIC Uploads the agentops-stacks SKILL.md files to your workspace so Genie Code
-# MAGIC can scaffold new DAB projects and guide them through the full production
-# MAGIC lifecycle.
+# MAGIC Uploads the agentops-stacks skills (each skill's whole directory: SKILL.md
+# MAGIC plus its scripts, reference and resource files) to your workspace so Genie
+# MAGIC Code can scaffold new DAB projects and guide them through the full
+# MAGIC production lifecycle.
 # MAGIC
-# MAGIC Installs eight skills:
+# MAGIC Installs ten skills:
 # MAGIC - `agentops-bigbook` — advisory reference (Big Book of AgentOps): patterns, anti-patterns, eval, governance
 # MAGIC - `agentops-stacks` — scaffolds a new project via `databricks bundle init`
 # MAGIC - `agentops-lifecycle` — guides an existing scaffold through the 10-step dev→prod lifecycle
 # MAGIC - `add-agent` — adds a second agent to an existing scaffold
+# MAGIC - `add-supervisor` — adds a supervisor that routes across agents (custom LangGraph)
+# MAGIC - `right-size-capability` — decides tool vs MCP server vs skill before you build a capability
 # MAGIC - `vector-search-ops` — operates and troubleshoots the Vector Search component
 # MAGIC - `lakebase-ops` — operates and troubleshoots the Lakebase memory component
 # MAGIC - `uc-functions-ops` — registers, grants, and manages UC function tools
 # MAGIC - `usage-tracking-ops` — tags resources and attaches usage policies for cost attribution
 # MAGIC
-# MAGIC Destination: `/Workspace/Users/<your_username>/.assistant/skills/<skill-name>/SKILL.md`
+# MAGIC Destination: `/Workspace/Users/<your_username>/.assistant/skills/<skill-name>/`
 # MAGIC
 # MAGIC **Prereqs in your workspace:** the Databricks CLI (already present in
 # MAGIC Genie Code) and the ai-dev-kit plugin skills installed under
@@ -50,6 +53,7 @@ GITHUB_REF = os.environ.get("AGENTOPS_GITHUB_REF", "main")
 # COMMAND ----------
 
 import base64
+import json
 import posixpath
 import urllib.request
 
@@ -78,7 +82,27 @@ def _upload(w, workspace_path, content):
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
-SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops", "usage-tracking-ops"]
+# Keep in sync with SKILL_NAMES in install_skills.sh.
+SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "add-supervisor", "right-size-capability", "vector-search-ops", "lakebase-ops", "uc-functions-ops", "usage-tracking-ops"]
+
+
+def _skill_files():
+    """Map each skill to the repo paths of every file in its directory at GITHUB_REF (one GitHub API call)."""
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/git/trees/{GITHUB_REF}?recursive=1"
+    data = _download(url)
+    if data is None:
+        raise RuntimeError(f"Could not list {url}")
+    tree = json.loads(data)
+    if tree.get("truncated"):
+        raise RuntimeError(f"GitHub truncated the file listing for {GITHUB_REF}")
+    files = {skill: [] for skill in SKILLS}
+    for entry in tree["tree"]:
+        parts = entry["path"].split("/")
+        if entry["type"] == "blob" and parts[:2] == ["plugin", "skills"] and len(parts) > 3 \
+                and parts[2] in files and "__pycache__" not in parts:
+            files[parts[2]].append(entry["path"])
+    return files
+
 
 w = WorkspaceClient()
 username = w.current_user.me().user_name
@@ -86,23 +110,24 @@ skills_base = f"/Users/{username}/.assistant/skills"
 
 print(f"Username: {username}")
 print(f"Source:   github.com/{GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_REF}")
-print(f"Target:   /Workspace{skills_base}/<skill>/SKILL.md")
+print(f"Target:   /Workspace{skills_base}/<skill>/")
 print()
 
-# Each skill is a single SKILL.md. The template tree, library, schema, and
-# workflow definitions are read from the GitHub repo at run time — nothing
-# needs to be vendored next to the skill files in the workspace.
-for skill_name in SKILLS:
-    src_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_REF}/plugin/skills/{skill_name}/SKILL.md"
-    skill_dest = f"{skills_base}/{skill_name}"
-
+# Copy each skill's whole directory: SKILL.md refers to its own scripts/,
+# reference/ and resources/ files. The template itself is read from the
+# GitHub repo at run time, so it isn't copied.
+for skill_name, paths in _skill_files().items():
+    if not any(path.endswith(f"/{skill_name}/SKILL.md") for path in paths):
+        raise RuntimeError(f"No SKILL.md for {skill_name} at {GITHUB_REF}")
     print(f"Installing {skill_name}...")
-    data = _download(src_url)
-    if data is None:
-        raise RuntimeError(f"Could not download {src_url}")
-
-    _upload(w, f"{skill_dest}/SKILL.md", data)
-    print(f"  OK  /Workspace{skill_dest}/SKILL.md")
+    for path in paths:
+        src_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_REF}/{path}"
+        data = _download(src_url)
+        if data is None:
+            raise RuntimeError(f"Could not download {src_url}")
+        dest = f"{skills_base}/{path.removeprefix('plugin/skills/')}"
+        _upload(w, dest, data)
+    print(f"  OK  /Workspace{skills_base}/{skill_name}/ ({len(paths)} files)")
 
 print()
 print("Done.")

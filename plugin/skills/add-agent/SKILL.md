@@ -18,11 +18,11 @@ Adds a new agent to an existing AgentOps Stacks project by copying an existing a
 1. **Locate the project** — find `databricks.yml` in the current directory or parents
 2. **List existing agents** — show what agents already exist under `src/agents/`
 3. **Gather inputs**:
-   - **Agent name** — must match `^[a-z][a-z0-9_]{2,}$`
+   - **Agent name** — must match `^[a-z][a-z0-9_]{2,}$`, and `<project>-<agent>` (underscores as hyphens) must fit in 30 characters, the Databricks App name limit
    - **Source agent** — which existing agent to copy from (default: first found)
-4. **Run the script**:
+4. **Run the script**, which ships in the `agentops-stacks` skill's `scripts/` directory (`.claude/skills/agentops-stacks/scripts/` after `install_skills.sh`, or `plugin/skills/agentops-stacks/scripts/` in a clone of the agentops-stacks repo):
    ```bash
-   python plugin/skills/agentops-stacks/scripts/add_agent.py \
+   python <agentops-stacks skill>/scripts/add_agent.py \
      --name <agent_name> \
      --from <source_agent> \
      --project-dir <project_root>
@@ -47,6 +47,7 @@ If the project has usage tracking enabled (a `usage_policy_id` variable in `data
 
 - Agent name already exists → abort
 - Invalid name format → abort with pattern hint
+- App name `<project>-<agent>` over 30 characters → abort; choose a shorter agent name
 - Source agent not found → abort, show available agents
 - No `databricks.yml` found → abort, not an AgentOps Stacks project
 

@@ -77,10 +77,10 @@ Then only ask for inputs still missing.
 Collect any of these not already known:
 
 1. **project_name** (string) — Bundle name. Must match `^[a-z][a-z0-9_]{2,}$`.
-2. **initial_agent_name** (string) — Name of the first agent. Same pattern. Default: `default`.
+2. **initial_agent_name** (string) — Name of the first agent. Same pattern. Default: `default`. Its App is named `<project_name>-<initial_agent_name>` with underscores as hyphens, and Databricks App names are limited to 30 characters, so keep the pair short (`validate_inputs.py` and `bundle init` both reject longer ones).
 3. **cloud** — `aws`, `azure`, or `gcp`.
 4. **cicd_platform** — `github_actions`, `github_actions_for_github_enterprise_servers`, `azure_devops`, or `gitlab`.
-5. **destination** (path) — Must be a Git folder. Default: cwd if it's a Git folder.
+5. **destination** (path) — The *parent* folder: the scaffold creates `<destination>/<project_name>/`. Default: cwd. The generated CI/CD files (`.github/`, `.gitlab-ci.yml`, `.azure/`) only run when `<project_name>/` is the root of its git repository, so don't scaffold inside an existing repo unless the user only wants workspace deploys (the Genie Code Git folder flow; see [reference/genie-code.md](reference/genie-code.md)). `scaffold.sh` warns when the destination is inside a git repo.
 
 ### Phase 2: Data sources
 
@@ -136,13 +136,14 @@ Write all collected inputs to `/tmp/agentops-stacks-inputs.json` using these exa
 Omit conditional keys whose parent is `no` (e.g. omit `input_has_chunked_table` if `input_use_vector_search` is `no`, and `input_usage_policy_id` if `input_enable_cost_tags` is `no`). The schema defaults handle those. Validate:
 
 ```bash
-python scripts/validate_inputs.py --config /tmp/agentops-stacks-inputs.json
+# <skill-dir> is this skill's directory: .claude/skills/agentops-stacks/ once installed.
+python <skill-dir>/scripts/validate_inputs.py --config /tmp/agentops-stacks-inputs.json
 ```
 
 Show the user a summary of which components are enabled, then confirm before running:
 
 ```bash
-bash scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination <destination>
+bash <skill-dir>/scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination <destination>
 ```
 
 ### Phase 7: Next steps

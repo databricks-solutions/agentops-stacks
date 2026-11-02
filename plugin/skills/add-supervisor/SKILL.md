@@ -63,13 +63,13 @@ any other agent — no extra workflow.
 2. **Locate the project** — find `databricks.yml` in the current dir or a parent.
 3. **List existing agents** — show what's under `src/agents/` (candidate routes).
 4. **Gather inputs:**
-   - **Supervisor name** — must match `^[a-z][a-z0-9_]{2,}$` (and not collide with an existing agent).
+   - **Supervisor name** — must match `^[a-z][a-z0-9_]{2,}$`, not collide with an existing agent, and keep `<project>-<supervisor>` (underscores as hyphens) within 30 characters, the Databricks App name limit.
    - **Routes** — comma-separated sub-agent names (**≥1 required**). Local agents are
      validated; names that aren't local agents are assumed managed sub-agents (Genie/KA/endpoint).
    - **Source agent** — which existing agent's App shape to base on (default: first found).
-5. **Run the script:**
+5. **Run the script**, which ships in the `agentops-stacks` skill's `scripts/` directory (`.claude/skills/agentops-stacks/scripts/` after `install_skills.sh`, or `plugin/skills/agentops-stacks/scripts/` in a clone of the agentops-stacks repo):
    ```bash
-   python plugin/skills/agentops-stacks/scripts/add_supervisor.py \
+   python <agentops-stacks skill>/scripts/add_supervisor.py \
      --name <supervisor_name> \
      --routes <agent_a,agent_b> \
      [--from <source_agent>] \
@@ -104,6 +104,7 @@ With usage tracking enabled (a `usage_policy_id` variable in `databricks.yml`), 
 
 - Name collides with an existing agent → abort.
 - Invalid name format → abort with the pattern hint.
+- App name `<project>-<supervisor>` over 30 characters → abort; choose a shorter name.
 - No `--routes` → abort (a supervisor with no routes can't start).
 - No `databricks.yml` found → abort (not an AgentOps Stacks project).
 - No existing agents to base on → abort (scaffold an agent first).

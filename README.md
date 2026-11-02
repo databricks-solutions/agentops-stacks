@@ -67,7 +67,7 @@ The agentops-stacks plugin is a conversational UX layer over `bundle init`. It c
 See [plugin/README.md](plugin/README.md) for install and usage. Two install flavors:
 
 - **Genie Code install** — open `plugin/skills/install_genie_code_skills.py` as a notebook in your workspace and run all cells. The skill is then available in Genie Code.
-- **Local install** — clone this repo, run `./plugin/skills/install_skills.sh` from your project root. The skill is then available in Claude Code or Cursor.
+- **Local install** — clone this repo, then run `<clone>/plugin/skills/install_skills.sh` from the directory you'll open the assistant in. The skills and slash commands are then available in Claude Code or Cursor.
 
 ### Using the plugin
 
@@ -75,7 +75,7 @@ Once installed, the plugin is invoked by your coding assistant. There's nothing 
 
 1. **Open your coding assistant** in the target directory:
    - **Genie Code** — pre-create the destination via the workspace UI (Workspace → Add → Git folder for a repo-backed project, or just create an empty folder under `/Workspace/Users/<you>/`), then open Genie Code from inside that directory.
-   - **Claude Code / Cursor** — open the assistant in the directory where you want the scaffold to land.
+   - **Claude Code / Cursor** — open the assistant in the parent directory. The scaffold creates `<project_name>/` there; make that folder its own git repository, since the generated CI/CD workflows only run from a repo root.
 
 2. **Ask the assistant to scaffold a project.** Either:
    - Type `/init-agentops-stacks` (Claude Code / Cursor only), or
@@ -143,8 +143,8 @@ Install the plugin, then ask your coding assistant to continue from where the
 scaffold left off:
 
 ```bash
-# Install (Claude Code / Cursor)
-./plugin/skills/install_skills.sh
+# Install (Claude Code / Cursor), from your project's root
+<clone>/plugin/skills/install_skills.sh
 
 # Then in the assistant:
 /agentops-lifecycle

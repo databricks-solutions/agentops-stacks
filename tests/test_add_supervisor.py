@@ -367,3 +367,15 @@ def test_missing_targets_anchor_fails_loudly(project):
     yml.write_text(yml.read_text().replace("targets:", "environments:"))
     with pytest.raises(SystemExit):
         addsup.append_agent_resources_to_databricks_yml(project, "router")
+
+
+def test_supervisor_app_name_over_30_chars_rejected(project, monkeypatch, capsys):
+    # The App is <project>-<supervisor>; Databricks App names are limited to 30 characters.
+    name = "customer_support_router"  # my-proj-customer-support-router = 31
+    monkeypatch.setattr(
+        sys, "argv",
+        ["add_supervisor", "--name", name, "--routes", "rag", "--project-dir", str(project)],
+    )
+    with pytest.raises(SystemExit, match="my-proj-customer-support-router"):
+        addsup.main()
+    assert not exists(project, f"src/agents/{name}")
