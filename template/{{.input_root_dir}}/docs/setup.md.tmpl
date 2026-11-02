@@ -413,7 +413,7 @@ databricks bundle run {{ .input_initial_agent_name }} -t dev --profile dev
 
 `bundle deploy` creates and updates the App, but only `bundle run <agent>` ships the code to it and starts it, so run it after each deploy, once per agent App (the keys under `resources.apps`). The staging and prod CD pipelines do this for every App automatically.
 
-The first deploy creates the schema and the `artifacts` volume in `{{ .input_project_name }}_dev`. The MLflow experiment is created under `/Shared/{{ .input_project_name }}/dev` with the volume as artifact location.
+The first deploy creates the schema and the `artifacts` volume in the `{{ .input_project_name }}_dev` catalog, plus the MLflow experiment with the volume as its artifact location. Development mode prefixes names per developer: the schema is `dev_<you>_{{ .input_project_name }}` and the experiment is `/Shared/[dev <you>] {{ .input_project_name }}_dev` (staging and prod use `{{ .input_project_name }}` and `/Shared/{{ .input_project_name }}_<target>`).
 
 ### Bootstrap each environment (once, before your first PR)
 

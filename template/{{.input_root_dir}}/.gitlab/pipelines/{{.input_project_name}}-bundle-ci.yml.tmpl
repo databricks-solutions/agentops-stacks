@@ -24,9 +24,11 @@ unit_tests:
   stage: test
   script:
     - pip install uv==0.12.23
+    # Each agent has its own pyproject.toml; there's none at the project root.
+    - cd src/agents/{{ .input_initial_agent_name }}
     - uv sync --frozen
     # Exit 5 from pytest means "no tests collected" — pass until the project adds tests.
-    - uv run pytest --junitxml=test-unit.xml || [ $? -eq 5 ]
+    - uv run pytest ../../../tests/ --junitxml="$CI_PROJECT_DIR/test-unit.xml" || [ $? -eq 5 ]
   artifacts:
     when: always
     reports:
@@ -42,15 +44,15 @@ eval_gate:
   needs: [validate_bundle]
   rules:
     - exists:
-        - evaluation/thresholds.yml
+        - "src/agents/*/eval/gates.yml"
   script:
     - pip install uv==0.12.23
-    - uv sync --frozen
     - |
-      if [ -f evaluation/gate.py ]; then
-        uv run python evaluation/gate.py
-      else
-        echo "evaluation/thresholds.yml exists but evaluation/gate.py is missing." >&2
-        echo "Apply the full eval-gate pattern (plugin: /add-eval-gate)." >&2
-        exit 1
-      fi
+      # evaluate_agent.py scores the target's UC eval table with Databricks-hosted judges and
+      # exits non-zero when a gate fails. Host, catalog, schema and experiment come from the bundle.
+      eval "$(databricks bundle summary -t staging -o json | python3 -c 'import json, sys; d = json.load(sys.stdin); s = d["resources"]["schemas"]["project_schema"]; e = d["resources"].get("experiments", {}).get("experiment", {}).get("id"); print("export DATABRICKS_HOST=%s CATALOG=%s SCHEMA=%s MLFLOW_TRACKING_URI=databricks" % (d["workspace"]["host"], s["catalog_name"], s["name"])); e and print("export MLFLOW_EXPERIMENT_ID=%s" % e)')"
+      for gates_file in $(find src/agents -name "gates.yml" -path "*/eval/gates.yml"); do
+        agent_dir=$(dirname "$(dirname "$gates_file")")
+        echo "Running eval gate for $agent_dir"
+        (cd "$agent_dir" && uv sync --frozen && uv run python eval/evaluate_agent.py) || exit 1
+      done

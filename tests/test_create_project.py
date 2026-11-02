@@ -900,3 +900,45 @@ def test_ci_runs_the_committed_lock(tmp_path, platform):
     for f in CI_FILES[platform]:
         content = read_file(p, f)
         assert re.search(r'UV_FROZEN\b[":\s]+(value: )?"1"', content), f"{f}: UV_FROZEN not set"
+
+
+# ---------------------------------------------------------------------------
+# Every CI platform runs the same per-agent eval gate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("platform", list(CI_FILES))
+def test_every_platform_gates_on_the_per_agent_eval_layout(tmp_path, platform):
+    p = gen(tmp_path, input_cicd_platform=platform)
+    text = "\n".join(read_file(p, f) for f in CI_FILES[platform])
+    assert "evaluation/" not in text  # the pre-migration layout the scaffold never generates
+    assert "eval/gates.yml" in text and "eval/evaluate_agent.py" in text
+    assert "databricks bundle summary -t staging -o json" in text
+    for var in ("DATABRICKS_HOST", "CATALOG", "SCHEMA", "MLFLOW_TRACKING_URI", "MLFLOW_EXPERIMENT_ID"):
+        assert var in text, f"{platform}: {var} not set for the eval gate"
+
+
+@pytest.mark.parametrize("platform", ["gitlab", "azure_devops"])
+def test_unit_tests_run_in_the_agent_folder(tmp_path, platform):
+    # Each agent has its own pyproject.toml; there's none at the project root.
+    ci = read_file(gen(tmp_path, input_cicd_platform=platform), CI_FILES[platform][0])
+    assert "cd src/agents/default" in ci
+    assert "pytest ../../../tests/" in ci
+
+
+@pytest.mark.parametrize("platform", ["gitlab", "azure_devops"])
+def test_agent_loops_fail_when_any_agent_fails(tmp_path, platform):
+    # Without -e, a for-loop's status is its last iteration's: a failing agent could be masked.
+    text = "\n".join(read_file(gen(tmp_path, input_cicd_platform=platform), f) for f in CI_FILES[platform])
+    assert text.count("eval/evaluate_agent.py) || exit 1") == 3
+    assert "bundle run \"$app\" -t staging || exit 1" in text
+
+
+@pytest.mark.parametrize("cloud", ["aws", "azure"])
+def test_azure_devops_eval_steps_have_credentials(tmp_path, cloud):
+    ci = read_file(gen(tmp_path, input_cicd_platform="azure_devops", input_cloud=cloud), CI_FILES["azure_devops"][0])
+    steps = ci.split("displayName: 'Run eval gate (conditional)'")[1:]
+    assert len(steps) == 3
+    for step in steps:
+        env = step.split("- script:")[0]
+        assert ("ARM_CLIENT_SECRET" if cloud == "azure" else "DATABRICKS_CLIENT_SECRET") in env

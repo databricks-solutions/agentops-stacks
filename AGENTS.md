@@ -141,8 +141,9 @@ contract without needing to know how the project was created.
 The scaffold ships structural pieces only. Production patterns are applied as
 the solution develops, not pre-installed:
 
-- **Eval gates** — add `evaluation/thresholds.yml` and `evaluation/gate.py`;
-  CI workflows auto-detect and gate promotion on them.
+- **Eval gates** — scaffolded per agent (`src/agents/<agent>/eval/gates.yml` +
+  `eval/evaluate_agent.py`); CI on every platform runs them per agent and
+  gates promotion on them.
 - **Governance posture** — add `governance/posture.md` and
   `governance/data_flows.md`; the prod-promotion workflow checks for presence.
 - **Monitoring** — configure trace destination, alert rules, and dashboards per
