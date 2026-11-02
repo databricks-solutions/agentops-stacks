@@ -74,7 +74,7 @@ This is a fresh AgentOps Stacks scaffold. The CI/CD pipelines are wired but the 
 | Pattern | What to add | Why |
 |---|---|---|
 | **Eval gates** | Already scaffolded per agent: `src/agents/<agent>/eval/gates.yml` + `eval/evaluate_agent.py`. Build each environment's eval table (see "Bootstrap each environment" in `docs/setup.md`) and tune `gates.yml` | CI runs them on every PR and after each staging/prod deploy, and blocks promotion when a gate fails or nothing could be scored |
-| **Governance posture** | `governance/posture.md` (DASF mapping) and `governance/data_flows.md` | Prod-promotion workflow verifies posture is documented |
+| **Governance posture** | Not scaffolded. Add `governance/posture.md` (DASF mapping) and `governance/data_flows.md` | Documents the project's risk posture and data flows for review.{{ if (or (eq .input_cicd_platform `github_actions`) (eq .input_cicd_platform `github_actions_for_github_enterprise_servers`)) }} Once `governance/posture.md` exists, the prod CD workflow fails if it's empty (after the deploy, so it flags rather than blocks).{{ end }} |
 | **Monitoring** | Trace destination configured in code + alert rules per serving endpoint | Production observability and on-call response |
 
 The agentops-stacks plugin will eventually provide interactive commands for each (`/add-eval-gate`, `/audit-governance`, `/add-monitoring`). Until the plugin is available, apply patterns manually — the conventions in this file are sufficient guidance.
@@ -95,4 +95,4 @@ Offer the user:
 - Production code must not use user-scoped workspace paths (`/Users/...`) — DAB production mode rejects them.
 - Prefer YAML resource definitions over Python (pydabs) unless there's a specific reason; YAML stays readable for non-coders.
 - Defer to ai-dev-kit's `databricks-bundles` skill (or equivalent platform-specific guidance) when authoring new DAB resources.
-- When adding a new resource, also confirm the production patterns above are still complete — e.g., if the resource handles data subject to governance, update `governance/data_flows.md`.
+- When adding a new resource, also confirm the production patterns above are still complete — e.g., if the resource handles data subject to governance and the project has `governance/data_flows.md`, update it.

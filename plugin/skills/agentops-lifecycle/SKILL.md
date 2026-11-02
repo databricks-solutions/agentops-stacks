@@ -89,6 +89,8 @@ EOF
 databricks bundle init https://github.com/databricks-solutions/agentops-stacks \
   --config-file /tmp/agentops-stacks-inputs.json \
   --output-dir .
+# Turning on Lakebase also takes "input_memory_type" (short_term | long_term | both),
+# Vector Search "input_has_chunked_table", and UC functions "input_uc_functions_exist".
 
 cd my_agent/src/agents/my_agent
 uv sync                          # generates uv.lock — commit it
@@ -270,11 +272,14 @@ uv sync                                # install deps + generate uv.lock
 cp .env.example .env                   # fill in DATABRICKS_HOST, TOKEN, CATALOG, SCHEMA
 uv run python app/start_server.py      # starts FastAPI on http://localhost:8000
 
-# Send a test message
+# Send a test message (Responses API shape: `input`, not `messages`)
 curl -X POST http://localhost:8000/invocations \
   -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "hello"}]}'
+  -d '{"input": [{"role": "user", "content": "hello"}]}'
+# -> {"object": "response", "output": [{"type": "message", "content": [{"type": "output_text", "text": "..."}], ...}]}
 ```
+
+The App is API-only: `POST /invocations` (or `/responses`) is the interface, and `GET /` returns 404.
 
 ### Deploy to dev
 
@@ -336,19 +341,23 @@ the eval dataset and verify the gate passes locally — CI will run it on every 
 
 ### Build the eval dataset
 
-Run `src/agents/my_agent/eval/create_dataset.py` as a Databricks notebook.
-It saves the eval set to `<catalog>.<schema>.my_agent_eval_dataset` in Unity Catalog.
+Run `src/agents/my_agent/eval/create_dataset.py` as a Databricks notebook, or
+locally from the agent directory with `uv run --env-file .env python eval/create_dataset.py`
+(after filling `CATALOG` and `SCHEMA` in `.env`). It saves the eval set to
+`<catalog>.<schema>.my_agent_eval_dataset` in Unity Catalog and prints the row count.
 
-Three dataset modes are available (chosen at scaffold time via `input_eval_dataset_source`):
+Four dataset modes are available (chosen at scaffold time via `input_eval_dataset_source`):
 - **`synthetic`** — uses `databricks.agents.evals.generate_evals_df` to synthesize
   questions from your source documents. Edit the `docs` DataFrame to point at real content.
 - **`manual`** — fill in the `eval_examples` list with domain-specific Q&A pairs.
 - **`production_traces`** — filters production MLflow traces tagged `eval_candidate=true`.
+- **`existing`** — no `create_dataset.py` is generated; the eval reads a table you
+  already have at `<catalog>.<schema>.my_agent_eval_dataset`.
 
-After running the notebook, verify:
+Verify the table exists (in dev the schema is `dev_<you>_<schema>`; copy both
+names from `databricks bundle summary -t dev -o json`):
 ```bash
-databricks sql statement-execute \
-  --statement "SELECT COUNT(*) FROM my_agent_dev.my_agent.my_agent_eval_dataset"
+databricks tables get <catalog>.<schema>.my_agent_eval_dataset
 ```
 
 **Minimum:** 20 examples. Target: 50–100.
@@ -639,23 +648,22 @@ def test_agent_returns_response(agent_url):
     resp = httpx.post(
         f"{agent_url}/invocations",
         headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
-        json={"messages": [{"role": "user", "content": "What is Databricks?"}]},
+        json={"input": [{"role": "user", "content": "What is Databricks?"}]},
         timeout=30.0,
     )
     assert resp.status_code == 200
-    body = resp.json()
-    # AgentServer response has "output" list; chat proxy response has "choices"
-    assert body.get("output") or body.get("choices")
+    output = resp.json()["output"]
+    assert output and output[-1]["content"][0]["text"]
 
-def test_agent_handles_empty_messages(agent_url):
-    """Agent should return 4xx or a structured error, not 500."""
+def test_agent_rejects_malformed_request(agent_url):
+    """A request without `input` (here, a Chat Completions-style body) gets a 400, not a 500."""
     resp = httpx.post(
         f"{agent_url}/invocations",
         headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
-        json={"messages": []},
+        json={"messages": [{"role": "user", "content": "hello"}]},
         timeout=30.0,
     )
-    assert resp.status_code != 500
+    assert resp.status_code == 400
 
 def test_mlflow_traces_logged(agent_url):
     """Each invocation must produce an MLflow trace."""
@@ -669,7 +677,7 @@ def test_mlflow_traces_logged(agent_url):
     httpx.post(
         f"{agent_url}/invocations",
         headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
-        json={"messages": [{"role": "user", "content": "trace check"}]},
+        json={"input": [{"role": "user", "content": "trace check"}]},
         timeout=30.0,
     )
     after_count = len(client.search_traces(
@@ -733,11 +741,11 @@ APP_URL="https://<prod-app-url>"
 curl -X POST "$APP_URL/invocations" \
   -H "Authorization: Bearer $DATABRICKS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "smoke test"}]}'
+  -d '{"input": [{"role": "user", "content": "smoke test"}]}'
 ```
 
 The App is healthy when `/health` returns HTTP 200 and the smoke test returns
-a non-empty `output` (or `choices`) field.
+a non-empty `output` list.
 
 ### Done when
 
@@ -757,8 +765,10 @@ check.
 
 ### Batch inferencing job
 
-Add a Databricks Job to `resources/` for batch inference. The job calls the
-agent's App endpoint for each row in the input table:
+Add a Databricks Job to `resources/` for batch inference, and list the file
+under `include:` in `databricks.yml` (the bundle includes resource files by name,
+so an unlisted file is silently ignored). The job calls the agent's App endpoint
+for each row in the input table:
 
 ```yaml
 # resources/batch_inference_job.yml
@@ -775,11 +785,11 @@ resources:
       tasks:
         - task_key: run_batch
           notebook_task:
-            notebook_path: notebooks/batch_inference.py
+            notebook_path: ../notebooks/batch_inference.py  # relative to this file
             base_parameters:
-              app_name: "${bundle.name}_my_agent"
-              input_table: "${var.catalog}.${var.schema}.batch_eval_inputs"
-              output_table: "${var.catalog}.${var.schema}.batch_eval_outputs"
+              app_name: ${resources.apps.my_agent.name}
+              input_table: "${var.catalog}.${resources.schemas.project_schema.name}.batch_eval_inputs"
+              output_table: "${var.catalog}.${resources.schemas.project_schema.name}.batch_eval_outputs"
 ```
 
 ```python
@@ -812,11 +822,11 @@ for _, row in input_df.iterrows():
     resp = httpx.post(
         f"{app_url}/invocations",
         headers={"Authorization": f"Bearer {token}"},
-        json={"messages": [{"role": "user", "content": row["query"]}]},
+        json={"input": [{"role": "user", "content": row["query"]}]},
         timeout=60.0,
     )
     resp.raise_for_status()
-    results.append(resp.json())
+    results.append(resp.json()["output"][-1]["content"][0]["text"])
 
 output_df = pd.DataFrame({"query": input_df["query"], "response": results})
 spark.createDataFrame(output_df).write.mode("overwrite").saveAsTable(output_table)

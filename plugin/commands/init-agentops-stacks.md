@@ -4,7 +4,7 @@ description: Scaffold a new AgentOps Stacks project (DAB + CI/CD).
 
 Use the `agentops-stacks` skill to scaffold a new multi-agent LangGraph project.
 
-1. Verify prerequisites: Databricks CLI, uv, Node.js >=20.19.
+1. Verify prerequisites: Databricks CLI, uv.
 2. Collect inputs across six phases:
    - **Phase 1 (Infrastructure):** `project_name`, `initial_agent_name`, `cloud`, `cicd_platform`, `destination`
    - **Phase 2 (Data sources):** Vector Search (RAG), Lakebase memory type

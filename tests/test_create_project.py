@@ -942,3 +942,32 @@ def test_azure_devops_eval_steps_have_credentials(tmp_path, cloud):
     for step in steps:
         env = step.split("- script:")[0]
         assert ("ARM_CLIENT_SECRET" if cloud == "azure" else "DATABRICKS_CLIENT_SECRET") in env
+
+
+# ---------------------------------------------------------------------------
+# Docs and the API-only App
+# ---------------------------------------------------------------------------
+
+
+def test_agent_server_validates_as_a_responses_agent(tmp_path):
+    # AgentServer's first argument is the agent *type*; any other value skips request
+    # validation (bad payloads get a 500, not a 400) and the OpenAI trace format.
+    content = read_file(gen(tmp_path), "src/agents/default/app/start_server.py")
+    assert 'AgentServer("ResponsesAgent")' in content
+    # No chat UI is bundled, so the chat proxy would 503 every GET /.
+    assert "enable_chat_proxy=True" not in content
+
+
+def test_readme_local_eval_command_exists(tmp_path):
+    readme = read_file(gen(tmp_path), "README.md")
+    assert "agent-evaluate" not in readme  # there's no such console script
+    assert "uv run --env-file .env python eval/evaluate_agent.py" in readme
+
+
+@pytest.mark.parametrize("platform,has_check", [("github_actions", True), ("gitlab", False), ("azure_devops", False)])
+def test_governance_check_is_only_described_where_it_exists(tmp_path, platform, has_check):
+    # Only the GitHub prod CD workflow has a governance_check job.
+    p = gen(tmp_path, input_cicd_platform=platform)
+    for f in ("AGENTS.md", "README.md"):
+        line = next(l for l in read_file(p, f).splitlines() if "**Governance posture**" in l)
+        assert ("workflow" in line) == has_check, f"{f}: {line}"

@@ -18,7 +18,10 @@ load_dotenv(dotenv_path=Path(__file__).parents[1] / ".env", override=True)
 # Import the agent to register @invoke/@stream handlers with the server
 import agent  # noqa: F401
 
-agent_server = AgentServer("{{ .input_initial_agent_name }}", enable_chat_proxy=True)
+# "ResponsesAgent" turns on request validation (bad payloads get a 400, not a 500)
+# and OpenAI-format traces. The App is API-only: no chat UI is bundled, so the
+# chat proxy stays off.
+agent_server = AgentServer("ResponsesAgent")
 
 # Module-level app variable for uvicorn workers
 app = agent_server.app  # noqa: F841

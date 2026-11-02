@@ -43,8 +43,8 @@ Each target has its own catalog. Dev mode prefixes resource names with user info
 
 Evaluation gates are pre-scaffolded under `src/agents/<name>/eval/`. Governance and monitoring are applied as the project matures:
 
-- **Evaluation gates** — `eval/gates.yml` defines quality thresholds; `eval/evaluate_agent.py` runs the harness. CI workflows auto-detect and gate promotion on them. Run locally with `uv run agent-evaluate`.
-- **Governance posture** — apply by adding `governance/posture.md` and `governance/data_flows.md`; the prod-promotion workflow checks for presence.
+- **Evaluation gates** — `eval/gates.yml` defines quality thresholds; `eval/evaluate_agent.py` runs the harness. CI workflows auto-detect and gate promotion on them. Run locally from the agent's directory, after filling `CATALOG`, `SCHEMA` and `MLFLOW_EXPERIMENT_ID` in `.env`: `uv run --env-file .env python eval/evaluate_agent.py`.
+- **Governance posture** — not scaffolded; apply by adding `governance/posture.md` and `governance/data_flows.md`.{{ if (or (eq .input_cicd_platform `github_actions`) (eq .input_cicd_platform `github_actions_for_github_enterprise_servers`)) }} Once `posture.md` exists, the prod CD workflow fails if it's empty.{{ end }}
 - **Monitoring** — apply per-resource as you deploy them (trace destination in code, alert rules per endpoint, etc.).
 {{- if (eq .input_enable_cost_tags `yes`) }}
 - **Usage tracking** — resources are tagged with `project`, `environment`, and `agent` for cost attribution in `system.billing.usage`. Serverless usage is tagged through a serverless usage policy. See [`docs/usage-tracking.md`](docs/usage-tracking.md).
@@ -55,5 +55,5 @@ Use the agentops-stacks plugin (Claude Code, Cursor, or Genie Code) for interact
 ## Resources
 
 - [Declarative Automation Bundles](https://docs.databricks.com/dev-tools/bundles/)
-- [MLflow 3 + Unity Catalog](https://docs.databricks.com/mlflow3/)
+- [MLflow 3 + Unity Catalog](https://docs.databricks.com/mlflow3/genai/)
 - [Direct deployment engine](https://docs.databricks.com/dev-tools/bundles/direct)
