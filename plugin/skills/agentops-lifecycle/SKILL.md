@@ -280,16 +280,18 @@ curl -X POST http://localhost:8000/invocations \
 
 ```bash
 databricks bundle deploy -t dev
+databricks bundle run my_agent -t dev   # ship the code to the App and start it
 ```
 
-The bundle deploys a Databricks App for each agent declared in `databricks.yml`.
+The bundle deploys a Databricks App for each agent declared in `databricks.yml`; `bundle run <agent>`
+starts it (`bundle deploy` alone leaves the App stopped).
 Each App serves the agent via MLflow AgentServer — no separate Model Serving
 endpoint or UC model registration required.
 
 ### Done when
 
 - `uv run python app/start_server.py` starts without errors locally and returns a response.
-- `databricks bundle deploy -t dev` exits 0.
+- `databricks bundle deploy -t dev` and `databricks bundle run my_agent -t dev` exit 0.
 - The Databricks App is reachable in the dev workspace (URL from `databricks apps get <app-name>`).
 - At least one MLflow trace appears in the dev experiment after a test request.
 
@@ -869,8 +871,9 @@ driving future iterations.
 ### Verify MLflow tracing on the App
 
 The agent enables `mlflow.langchain.autolog()` in `agent.py` on startup. Traces
-are sent to the MLflow tracking server configured in the App environment
-(`DATABRICKS_HOST` and token from the Databricks App runtime). Verify:
+go to the target's bundle experiment: the App's env in `databricks.yml` sets
+`MLFLOW_TRACKING_URI=databricks` and `MLFLOW_EXPERIMENT_ID` from the attached experiment, and the
+App's service principal can write to the experiment's UC volume through the `artifacts` App resource. Verify:
 
 ```bash
 # Check that traces appear in the prod MLflow experiment after a live request
@@ -1002,7 +1005,7 @@ If a step fails after 3 retries:
 | Gate reports `FAIL ... no metric produced` | Every judge call errored (e.g. tracking not pointed at Databricks) | Check the run's assessments in MLflow; leave `MLFLOW_TRACKING_URI` unset or `databricks` |
 | MLflow traces not appearing after App request | `mlflow.langchain.autolog()` disabled or DATABRICKS_HOST not set in App env | Confirm `mlflow.langchain.autolog()` is called in `agent.py`; check App env vars in `databricks.yml` |
 | CI eval gate fails after local gate passes | Different `CATALOG`/`SCHEMA` in CI vs. local | Ensure `DATABRICKS_TOKEN` and workspace host in CI point to the staging workspace where the eval table exists |
-| App returns HTTP 502 or connection refused | App not yet started or failed to deploy | Check App logs: `databricks apps logs <app-name>`; verify `app.yaml` entry point matches `start_server.py` |
+| App returns HTTP 502 or connection refused | App not yet started or failed to deploy | Check App logs: `databricks apps logs <app-name>`; verify the App's `config.command` in `databricks.yml` points at `app/start_server.py`; after a deploy, run `databricks bundle run <agent>` |
 | `uv sync` fails in CI | No `uv.lock` committed | Run `uv sync` locally from `src/agents/<name>/`, commit `uv.lock` |
 | VS index query returns no results | Index not synced after data write | Trigger a manual sync: `w.vector_search_indexes.sync_index("my_agent_dev.my_agent.docs_index")` |
 | `databricks bundle deploy -t staging` fails with auth error | Service principal not configured in CI secrets | Set `STAGING_WORKSPACE_TOKEN` secret in GitHub repo settings |

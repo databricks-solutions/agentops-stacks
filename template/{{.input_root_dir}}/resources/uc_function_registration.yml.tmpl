@@ -2,7 +2,7 @@ resources:
   jobs:
     uc_function_registration:
       name: "${bundle.name}-uc-function-registration"
-      description: "Register UC functions from SQL/Python definitions into ${var.catalog}.${var.schema}"
+      description: "Register UC functions from SQL/Python definitions into ${var.catalog}.${resources.schemas.project_schema.name}"
 {{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: the task runs on serverless compute, which takes billing tags
       # from the usage policy (don't rely on job tags for serverless). Classic compute
       # bills under the cluster's custom_tags; see the job_clusters example below and
@@ -32,5 +32,5 @@ resources:
             notebook_path: ../src/components/tools/registry.py
             base_parameters:
               catalog: ${var.catalog}
-              schema: ${var.schema}
+              schema: ${resources.schemas.project_schema.name}
               app_sp: ""  # TODO: set app service principal client ID

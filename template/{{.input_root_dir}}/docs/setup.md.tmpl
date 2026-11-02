@@ -74,6 +74,14 @@ GRANT CREATE VOLUME ON SCHEMA {{ .input_project_name }}_<env>.{{ .input_project_
 
 `WRITE VOLUME` on the `artifacts` volume is granted automatically to the volume's creator. If you delegate volume creation, grant `WRITE VOLUME` explicitly to whoever runs MLflow.
 
+Each agent App also attaches that volume as an App resource, so the App's own service principal can write traces and artifacts. Attaching it makes the platform grant `USE CATALOG` to the App's service principal, which requires the deploying identity to hold `MANAGE` on the catalog:
+
+```sql
+GRANT MANAGE ON CATALOG {{ .input_project_name }}_<env> TO `<identity>`;
+```
+
+Without it, deploys fail with `Cannot add volume ... does not have MANAGE permission on the catalog`. (The alternative, granting `USE CATALOG` to `account users`, makes the catalog visible to everyone in the account.)
+
 ### 2c. Create service principals (staging + prod)
 
 Production-mode targets in `databricks.yml` use `run_as` to define who the bundle's resources execute as. The default is the deploying user (you), which is fine for getting started but not for real production.
@@ -207,7 +215,7 @@ Prerequisites and notes:
   first, *your* user owns the memory schema and the deployed app then hits
   `permission denied`. Deploy first so the app SP owns its tables. See the
   `lakebase-ops` skill to recover if this happens.
-- `LAKEBASE_ENDPOINT` in the agent's `app.yaml` comes prefilled with the derivable
+- `LAKEBASE_ENDPOINT` in the agent App's env (`resources.apps.<agent>.config.env` in `databricks.yml`) comes prefilled with the derivable
   path to the auto-created read-write endpoint
   (`projects/{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory/branches/production/endpoints/primary`).
   You normally don't need to touch it. If you renamed the branch or created a custom
@@ -381,7 +389,10 @@ From your machine, with the dev profile from step 3:
 ```bash
 databricks bundle validate -t dev --profile dev
 databricks bundle deploy -t dev --profile dev
+databricks bundle run {{ .input_initial_agent_name }} -t dev --profile dev
 ```
+
+`bundle deploy` creates and updates the App, but only `bundle run <agent>` ships the code to it and starts it, so run it after each deploy, once per agent App (the keys under `resources.apps`). The staging and prod CD pipelines do this for every App automatically.
 
 The first deploy creates the schema and the `artifacts` volume in `{{ .input_project_name }}_dev`. The MLflow experiment is created under `/Shared/{{ .input_project_name }}/dev` with the volume as artifact location.
 
@@ -430,7 +441,7 @@ After this, pushes to `main` deploy to staging via CI/CD, and tags matching `v*`
 {{ if (eq .input_use_lakebase `yes`) }}
 **Agent memory silently doesn't work — app logs show `permission denied for schema public` / `CREATE TABLE ... checkpoint_migrations` / `store_migrations`** — the app service principal can connect to Lakebase but lacks `CREATE ON SCHEMA public`, so the memory SDK can't create its tables and the agent degrades to running without memory. Grant it once as the database owner — see the grant step in section 2e.
 
-**`This endpoint databricks-... is deprecated` (400) on every agent invocation** — the model set in `LLM_ENDPOINT` (in `src/agents/<agent>/app.yaml`) has been retired on your workspace. Pick a current one from `databricks serving-endpoints list` and update `LLM_ENDPOINT`, then redeploy the app.
+**`This endpoint databricks-... is deprecated` (400) on every agent invocation** — the model set in `LLM_ENDPOINT` (`resources.apps.<agent>.config.env` in `databricks.yml`) has been retired on your workspace. Pick a current one from `databricks serving-endpoints list` and update `LLM_ENDPOINT`, then `bundle deploy` and `bundle run <agent>`.
 
 **`project slug already exists in the workspace` when deploying the Lakebase memory project** — Lakebase Postgres project slugs (here `{{ (regexp "_").ReplaceAllString .input_project_name "-" }}-memory`) are unique per workspace and reserved through a **7-day soft-delete retention window**. If you previously deployed then deleted the project (e.g. `bundle destroy`), the slug stays reserved until its `purge_time`, and a redeploy fails even though the project no longer appears in `databricks postgres list-projects`. Inspect the soft-deleted project and force an early purge to free the slug:
 

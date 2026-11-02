@@ -31,7 +31,7 @@ Adds a new agent to an existing AgentOps Stacks project by copying an existing a
    - `src/agents/<name>/graph.py` — agent behavior and component wiring
    - `src/agents/<name>/tools.py` — which tools this agent uses
    - `src/agents/<name>/eval/gates.yml` — quality bar for this agent
-   - `src/agents/<name>/app.yaml` — runtime env vars if different from source
+   - the new App's env in `databricks.yml` (`resources.apps.<name>.config.env`, copied from the source agent) if it differs
 
 ## What the script does
 
@@ -65,5 +65,5 @@ Updated: manifest.yml
 Next, customize the agent:
   - Edit src/agents/support/graph.py for this agent's behavior
   - Edit src/agents/support/tools.py for tool selection
-  - Run: databricks bundle deploy -t dev
+  - Run: databricks bundle deploy -t dev && databricks bundle run <name> -t dev
 ```

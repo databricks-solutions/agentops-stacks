@@ -177,14 +177,16 @@ retriever.as_retriever(search_kwargs={"k": 10})
 | `403` on `sync_index` | App SP lacks permission | Grant `SELECT` on the chunked_docs table to the app SP |
 | Column not returned in results | Column not in `columns_to_sync` | Add it in `resources/vector_search.yml` and re-sync |
 
-## Environment variables (set in `app.yaml`)
+## Environment variables (set in `databricks.yml`)
+
+The agent App's env lives in `resources.apps.<agent>.config.env`, resolved per target:
 
 ```yaml
 env:
   - name: CATALOG
-    value: <catalog>
+    value: ${var.catalog}
   - name: SCHEMA
-    value: <schema>
+    value: ${resources.schemas.project_schema.name}   # dev-prefixed in development mode
 ```
 
 The retriever in `graph.py` reads `os.environ["CATALOG"]` and `os.environ["SCHEMA"]` to build the index name at runtime.

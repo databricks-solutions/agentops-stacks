@@ -97,6 +97,7 @@ cp .env.example .env               # configure Databricks auth
 uv run python app/start_server.py  # run the agent locally
 uv run agent-evaluate              # run the evaluation harness
 databricks bundle deploy -t dev    # deploy to Databricks
+databricks bundle run <agent_name> -t dev  # ship the code to the agent App and start it
 ```
 
 Set workspace hosts and Unity Catalog grants per `docs/setup.md` in the rendered project before deploying to staging or prod.

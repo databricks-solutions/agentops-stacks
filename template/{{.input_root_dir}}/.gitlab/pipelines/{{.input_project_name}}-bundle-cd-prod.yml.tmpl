@@ -23,6 +23,11 @@ deploy_prod:
   script:
     - databricks bundle validate -t prod
     - databricks bundle deploy -t prod
+    - |
+      # `bundle deploy` doesn't ship code to the Apps or start them; `bundle run` does, for every App.
+      for app in $(databricks bundle summary -t prod -o json | python3 -c 'import json, sys; print(" ".join(json.load(sys.stdin).get("resources", {}).get("apps", {})))'); do
+        databricks bundle run "$app" -t prod
+      done
 
 eval_gate:
   stage: deploy

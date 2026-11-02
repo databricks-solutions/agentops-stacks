@@ -31,6 +31,12 @@ jobs:
         run: databricks bundle validate -t staging
       - name: Deploy bundle to staging
         run: databricks bundle deploy -t staging
+      - name: Start the agent Apps on the new code
+        run: |
+          # `bundle deploy` doesn't ship code to the Apps or start them; `bundle run` does, for every App.
+          for app in $(databricks bundle summary -t staging -o json | python3 -c 'import json, sys; print(" ".join(json.load(sys.stdin).get("resources", {}).get("apps", {})))'); do
+            databricks bundle run "$app" -t staging
+          done
 
   # See detect_patterns rationale in the PR-check workflow.
   detect_patterns:

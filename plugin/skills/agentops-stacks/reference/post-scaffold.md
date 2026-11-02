@@ -16,7 +16,7 @@ Do not attempt step 5 (or create usage policies in step 6) from within this skil
 ## Two paths to deploy
 
 - **Workspace UI (Genie Code default).** If the scaffold landed inside a Git folder, open the bundle in the workspace UI — the Deployments panel lets you pick a target (`dev`) and Deploy with one click. No terminal needed.
-- **CLI.** `databricks bundle deploy -t dev` from the bundle's root directory. Works on every surface.
+- **CLI.** `databricks bundle deploy -t dev`, then `databricks bundle run <agent> -t dev` (per agent App) from the bundle's root directory. Works on every surface.
 
 ## Routing to ai-dev-kit skills
 

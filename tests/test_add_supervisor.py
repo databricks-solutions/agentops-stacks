@@ -167,6 +167,43 @@ def test_custom_appends_databricks_yml(project):
     assert yml.index("router:") < yml.index("sync:")
 
 
+SOURCE_APP_WITH_ENV = '''    rag:
+      name: "my-proj-rag"
+      source_code_path: ./src/agents/rag
+      config:
+        command: ["uv", "run", "--frozen", "--no-dev", "python", "app/start_server.py"]
+        env:
+          - name: SCHEMA
+            value: ${resources.schemas.project_schema.name}
+          - name: LAKEBASE_ENDPOINT
+            # comment lines inside the env block come along too
+            value: "projects/my-proj-memory/branches/production/endpoints/primary"
+      resources:
+        - name: "experiment"
+'''
+
+
+def test_supervisor_inherits_source_app_env_and_volume(project):
+    yml_path = project / "databricks.yml"
+    yml_path.write_text(yml_path.read_text().replace(
+        '    rag:\n      name: "my-proj-rag"\n      source_code_path: ./src/agents/rag\n', SOURCE_APP_WITH_ENV))
+    addsup.append_agent_resources_to_databricks_yml(project, "router", "rag")
+    router = yml_path.read_text().split("\n    router:\n", 1)[1]
+    assert "LAKEBASE_ENDPOINT" in router and "value: ${resources.schemas.project_schema.name}" in router
+    assert '"--frozen", "--no-dev"' in router
+    assert 'securable_type: "VOLUME"' in router and 'permission: "WRITE_VOLUME"' in router
+    assert "artifacts{" not in router  # no stray formatting
+    assert "/${resources.schemas.project_schema.name}/artifacts" in yml_path.read_text()
+
+
+def test_source_app_env_is_scoped_to_the_source_block(project):
+    # A source agent without env must not pick up another agent's env further down.
+    content = ("resources:\n  apps:\n    rag:\n      name: rag\n      config:\n        command: []\n"
+               "    other:\n      config:\n        env:\n          - name: X\n            value: y\n")
+    assert addsup.source_app_env(content, "rag") == ""
+    assert "- name: X" in addsup.source_app_env(content, "other")
+
+
 def test_manifest_records_custom_supervisor(project):
     addsup.update_manifest(project, "router", "custom", ["rag", "support"])
     m = read(project, ".agentops-stacks/manifest.yml")

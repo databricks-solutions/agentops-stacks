@@ -3,13 +3,13 @@ resources:
     data_pipeline:
       name: ${bundle.target}-{{ .input_project_name }}-data-pipeline
       catalog: ${var.catalog}
-      target: ${var.schema}
+      target: ${resources.schemas.project_schema.name}
       libraries:
         - notebook:
             path: ../src/components/retriever/data_pipeline.py
       configuration:
         catalog: ${var.catalog}
-        schema: ${var.schema}
+        schema: ${resources.schemas.project_schema.name}
       channel: PREVIEW
       serverless: true
 {{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: serverless pipelines take billing tags from the usage policy.

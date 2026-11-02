@@ -30,7 +30,7 @@ Covers day-to-day operations for the `resources/lakebase.yml` component: the Lak
 | `resources/lakebase.yml` | DAB resource: `postgres_projects.memory` (Autoscaling project + auto-created `production` branch and read-write endpoint) |
 | `src/agents/<name>/graph.py` | `get_async_checkpointer()` — opens an `AsyncCheckpointSaver` (short-term); `get_async_store()` — opens an `AsyncDatabricksStore` (long-term), both from databricks-langchain |
 | `src/agents/<name>/tools.py` | `memory_tools()` — the `get`/`save`/`delete_user_memory` long-term tools (present only when long-term memory is enabled) |
-| `src/agents/<name>/app.yaml` | `LAKEBASE_ENDPOINT` env var (full endpoint path) |
+| `databricks.yml` | `LAKEBASE_ENDPOINT` env var (full endpoint path) in `resources.apps.<name>.config.env` |
 
 The project is named `<project>-memory`. Its default branch is `production` and the default
 database is `databricks_postgres`. The endpoint path looks like
@@ -173,13 +173,13 @@ The exact store column/table names come from LangGraph's `PostgresStore` schema;
 confirm them with `\d store` (psql) or inspect via `information_schema.columns`. To wipe all long-term
 memory in dev, `TRUNCATE store` (and its vector companion table if present).
 
-### 6. Verify env vars in `app.yaml`
+### 6. Verify the App's env vars in `databricks.yml`
 
 The checkpointer in `graph.py` reads `LAKEBASE_ENDPOINT`; long-term memory additionally reads
 `DATABRICKS_EMBEDDING_ENDPOINT` (default `databricks-gte-large-en`):
 
 ```yaml
-# src/agents/<name>/app.yaml
+# databricks.yml — resources.apps.<name>.config
 env:
   - name: LAKEBASE_ENDPOINT
     value: projects/<project>-memory/branches/production/endpoints/<endpoint-id>
@@ -190,9 +190,10 @@ Get the endpoint path:
 databricks postgres list-endpoints projects/<project>-memory/branches/production --output json | jq -r '.[].name'
 ```
 
-After updating `app.yaml`:
+After updating it:
 ```bash
 databricks bundle deploy -t dev
+databricks bundle run <name> -t dev
 ```
 
 ### 7. Force memory table creation
@@ -261,7 +262,7 @@ the next `bundle deploy`. See the `usage-tracking-ops` skill.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `Running without memory` in agent logs | `LAKEBASE_ENDPOINT` not set in `app.yaml` | Add the env var and redeploy |
+| `Running without memory` in agent logs | `LAKEBASE_ENDPOINT` not set in the App's env (`databricks.yml`) | Add the env var, then `bundle deploy` and `bundle run <name>` |
 | `permission denied for schema` | App SP doesn't own the schema (you connected locally first) | Deploy the app before running locally so the SP creates and owns the schema; or drop the schema and redeploy |
 | `Connection refused` / long first-call latency | Endpoint scaled to zero and is waking up | Retry with backoff; the endpoint wakes on first connection |
 | `authentication failed` | Workspace-scoped token used as password | Use `w.postgres.generate_database_credential(endpoint=...)`, not `w.config.token` |
