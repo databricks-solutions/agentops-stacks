@@ -73,8 +73,9 @@ docs = pd.DataFrame([
     },
 ])
 
-# Estimate how many evals to generate for good coverage
-num_evals = estimate_synthetic_num_evals(docs)
+# Estimate how many evals to generate for good coverage: one per ~1000 tokens
+# (about two pages), with at least one per document. eval_per_x_tokens is required.
+num_evals = estimate_synthetic_num_evals(docs, eval_per_x_tokens=1000)
 print(f"Estimated evals for full coverage: {num_evals}")
 
 # Generate synthetic evaluation dataset

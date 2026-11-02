@@ -463,6 +463,9 @@ def test_eval_synthetic_uses_generate_evals_df(tmp_path):
         "src/agents/default/eval/create_dataset.py",
     )
     assert "generate_evals_df" in content
+    # databricks-agents makes eval_per_x_tokens a required keyword; without it the
+    # default (synthetic) dataset build raises TypeError before saving anything.
+    assert "estimate_synthetic_num_evals(docs, eval_per_x_tokens=" in content
 
 
 def test_eval_production_traces_uses_search_traces(tmp_path):
