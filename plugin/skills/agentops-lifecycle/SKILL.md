@@ -669,11 +669,10 @@ def test_mlflow_traces_logged(agent_url):
         json={"messages": [{"role": "user", "content": "trace check"}]},
         timeout=30.0,
     )
-    if experiment:
-        after_count = len(client.search_traces(
-            experiment_ids=[experiment.experiment_id], max_results=1000
-        ))
-        assert after_count > before_count, "Invocation did not log an MLflow trace"
+    after_count = len(client.search_traces(
+        experiment_ids=[experiment_id], max_results=1000
+    ))
+    assert after_count > before_count, "Invocation did not log an MLflow trace"
 ```
 
 Get the staging App URL after deploy:
