@@ -23,7 +23,6 @@ Agent code lives under `src/agents/<name>/`. Shared components live under `src/c
 
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html) — recent enough to support the direct deployment engine (any release from the past 6 months is safe)
 - [uv](https://docs.astral.sh/uv/) package manager
-- [Node.js](https://nodejs.org/) >=20.19 — for the chat UI frontend bundled with each agent App
 - A Databricks workspace with Unity Catalog enabled (one catalog per environment — see `docs/setup.md` in the rendered project)
 - [ai-dev-kit plugin](https://github.com/databricks-solutions/ai-dev-kit) — required for the post-scaffold workflow (eval gates, monitoring, governance). Install before the plugin's post-scaffold skills land
 
@@ -59,7 +58,7 @@ EOF
 databricks bundle init https://github.com/databricks-solutions/agentops-stacks --config-file inputs.json
 ```
 
-See `databricks_template_schema.json` for the full set of inputs and their allowed values (cloud, CI/CD platform, Vector Search, Lakebase memory type, UC functions, eval dataset source).
+See `databricks_template_schema.json` for the full set of inputs and their allowed values (cloud, CI/CD platform, Vector Search, Lakebase memory type, UC functions, eval dataset source). Three inputs are follow-ups, asked only when their feature is on: `input_memory_type` (with Lakebase: `short_term`, `long_term` or `both`, each a different memory scaffold; default `short_term`), `input_has_chunked_table` (with Vector Search; default `no`, which adds ingestion notebooks) and `input_uc_functions_exist` (with UC functions; default `no`, which adds definition stubs). Omitted inputs take their defaults.
 
 ### Drive the CLI from a coding assistant
 
@@ -94,10 +93,14 @@ Once installed, the plugin is invoked by your coding assistant. There's nothing 
 cd <project_name>/src/agents/<agent_name>
 uv sync                            # generates uv.lock — commit it
 cp .env.example .env               # configure Databricks auth
-uv run python app/start_server.py  # run the agent locally
-uv run agent-evaluate              # run the evaluation harness
+uv run python app/start_server.py  # run the agent locally (API only: POST /invocations)
 databricks bundle deploy -t dev    # deploy to Databricks
 databricks bundle run <agent_name> -t dev  # ship the code to the agent App and start it
+
+# Fill CATALOG, SCHEMA and MLFLOW_EXPERIMENT_ID in .env from
+# `databricks bundle summary -t dev -o json`, then:
+uv run --env-file .env python eval/create_dataset.py   # build the dev eval table (once)
+uv run --env-file .env python eval/evaluate_agent.py   # score the agent against eval/gates.yml
 ```
 
 Set workspace hosts and Unity Catalog grants per `docs/setup.md` in the rendered project before deploying to staging or prod.
@@ -171,4 +174,4 @@ the scaffold.
 - `template/{{.input_root_dir}}/AGENTS.md.tmpl` — conventions and guidance for coding agents
 - `template/{{.input_root_dir}}/docs/setup.md.tmpl` — end-to-end configuration guide
 - [Declarative Automation Bundles](https://docs.databricks.com/dev-tools/bundles/)
-- [MLflow 3 + Unity Catalog](https://docs.databricks.com/mlflow3/)
+- [MLflow 3 + Unity Catalog](https://docs.databricks.com/mlflow3/genai/)

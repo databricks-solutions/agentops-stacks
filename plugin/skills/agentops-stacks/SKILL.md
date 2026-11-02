@@ -5,7 +5,7 @@ description: Scaffold a new AgentOps Stacks project — a multi-agent LangGraph 
 
 # agentops-stacks — Agent Project Scaffold
 
-Generates a production-ready multi-agent project on Databricks: shared components (retriever, memory, tools), per-agent LangGraph graphs served as Databricks Apps via MLflow AgentServer, evaluation with ConversationSimulator, and CI/CD workflows.
+Generates a production-ready multi-agent project on Databricks: shared components (retriever, memory, tools), per-agent LangGraph graphs served as Databricks Apps via MLflow AgentServer, per-agent evaluation gates (`mlflow.genai.evaluate` plus `eval/gates.yml`), and CI/CD workflows.
 
 The first scaffold creates the bundle with one agent. Additional agents are added later via `/add-agent` or manually under `src/agents/`.
 
@@ -13,7 +13,8 @@ The first scaffold creates the bundle with one agent. Additional agents are adde
 
 1. **Databricks CLI** installed and on PATH. Verify with `databricks --version` (skip in Genie Code).
 2. **uv** for Python dependency management.
-3. **Node.js >=20.19** for the chat UI frontend.
+
+Each agent App is API-only (no chat UI is bundled), so Node.js isn't needed.
 
 If any are missing, surface install instructions and stop.
 
@@ -155,24 +156,15 @@ After scaffolding:
 4. `databricks bundle deploy -t dev` to deploy, then `databricks bundle run <agent> -t dev` to ship the code to the agent App and start it
 5. If `enable_cost_tags: yes` and no `usage_policy_id` was given: serverless usage stays untagged until a usage policy is set. See `docs/usage-tracking.md`.
 
-Point the user at the reference example closest to what they just scaffolded:
-
-| If they enabled... | Best reference example |
-|---|---|
-| Vector Search (RAG) | [`examples/simple-rag/`](../../../examples/simple-rag/) — full RAG agent: VS ingestion, retrieval, Foundation Model API, Databricks App, eval gate |
-| Lakebase memory or multiple agents | [`examples/multi-agent/`](../../../examples/multi-agent/) — three agents sharing tools, each an independent App, per-agent eval datasets |
-| Neither (minimal start) | [`examples/hello-agent/`](../../../examples/hello-agent/) — minimal pyfunc agent: register → evaluate → gate loop |
-
-Each example is a complete reference with agent code, DAB resources, setup notebooks, and an eval gate. Encourage the user to copy patterns from the nearest example rather than starting from scratch.
+Reference examples aren't published yet (see [`examples/README.md`](../../../examples/README.md)). For what to do next, point the user at the `agentops-lifecycle` skill (`/agentops-lifecycle`), which walks the project they just scaffolded from data prep to production.
 
 ## Adding more agents
 
-1. Create `src/agents/<new_name>/` with `agent.py`, `tools.py`, `app/`, `eval/`
-2. Add a new `resources.apps.<name>` entry in `databricks.yml`
-3. Add to `.agentops-stacks/manifest.yml` under `agents:`
-4. Add entry points in `pyproject.toml` (or use `AGENT_MODULE` env var)
+Use `/add-agent` (the `add-agent` skill): it copies an existing agent and wires its App into `databricks.yml` and the manifest. By hand:
 
-A future `/add-agent` skill will automate this.
+1. Copy `src/agents/<existing>/` to `src/agents/<new_name>/` and replace the old agent name with the new one in the copied files.
+2. In `databricks.yml`, copy the `resources.apps.<existing>` block under the new name, keeping its `config` (command and env) and `resources`. The App `name` must be at most 30 characters of lowercase letters, digits and hyphens. To keep the new agent's traces separate, also add an experiment for it and point the App's `experiment` resource at it.
+3. Add the agent to `.agentops-stacks/manifest.yml` under `agents:`.
 
 ## Additional references
 

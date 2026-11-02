@@ -57,6 +57,21 @@ CREATE CATALOG IF NOT EXISTS {{ .input_project_name }}_staging;
 CREATE CATALOG IF NOT EXISTS {{ .input_project_name }}_prod;
 ```
 
+If this fails with `Metastore storage root URL does not exist`, the metastore has no default storage location, so each catalog needs its own:
+
+- If the error says **Default Storage is enabled** in your account, create the catalogs in Catalog Explorer (**+** → **Create a catalog**) and leave the storage location empty.
+- Otherwise, give each catalog a managed location under an external location you can use: `CREATE CATALOG IF NOT EXISTS {{ .input_project_name }}_dev MANAGED LOCATION '<cloud-storage-path>/{{ .input_project_name }}_dev';`
+
+**Can't create catalogs?** This is common on metastores shared by several workspaces. Use catalogs you already own instead: set `variables.catalog` under each target in `databricks.yml` to an existing catalog, then apply the grants in 2b to that catalog.
+
+**Optional: isolate each environment's catalog.** By default a catalog is visible from every workspace on the metastore. To restrict one to its own workspace (as the catalog owner or a metastore admin):
+
+```bash
+databricks catalogs update {{ .input_project_name }}_prod --isolation-mode ISOLATED --profile <prod-profile>
+databricks workspace-bindings update-bindings catalog {{ .input_project_name }}_prod --profile <prod-profile> \
+  --json '{"add": [{"workspace_id": <prod-workspace-id>, "binding_type": "BINDING_TYPE_READ_WRITE"}]}'
+```
+
 ### 2b. Grant permissions to the deploying identity
 
 The user (for dev) or service principal (for staging/prod) that runs `databricks bundle deploy` needs these grants on the relevant catalog:
@@ -147,17 +162,18 @@ For GCP:
    ```
 {{- end }}
 
-### 2d. Grant each SP workspace and `/Shared/` access
+### 2d. Add each SP to its workspace
 
 After the SPs exist, they need to be wired into the corresponding workspaces. In **each workspace** (staging in the staging workspace, prod in the prod workspace), as a workspace admin:
 
 1. **Add the SP as a workspace service principal.** Admin Settings → Identity and access → Service principals → Add. Use the Application ID (from step 2c) as the SP's identifier. Grant **Workspace access: Can use**.
-2. **Grant `/Shared/` write access.** The bundle creates an MLflow experiment under `/Shared/`. The SP needs `Can Manage` on `/Shared/` to create the experiment. Workspace browser → `/Shared/` → ⋮ menu → Permissions → Add → select the SP → `Can Manage`.
+2. **`/Shared/` access: nothing to do.** The bundle creates its MLflow experiment under `/Shared/`. `/Shared/` grants `users: Can Manage` by default and every workspace SP belongs to `users`, so the SP can already create it. (`/Shared/`'s permissions can't be edited per principal, so if your workspace has tightened `/Shared/`, change the experiment's `name` in `resources/experiment.yml` to a folder the SP can write.)
 3. **Apply the Unity Catalog grants from step 2b**, substituting the SP's Application ID for `<identity>`. Use backticks around the Application ID in SQL:
 
    ```sql
    GRANT USE CATALOG ON CATALOG {{ .input_project_name }}_staging TO `<staging-app-id>`;
    GRANT CREATE SCHEMA ON CATALOG {{ .input_project_name }}_staging TO `<staging-app-id>`;
+   GRANT MANAGE ON CATALOG {{ .input_project_name }}_staging TO `<staging-app-id>`;
    ```
 
 Repeat for prod against the prod catalog and prod SP.
