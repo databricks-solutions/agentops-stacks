@@ -68,21 +68,55 @@ print(f"Scorers to run: {[type(s).__name__ for s in scorers]}")
 
 import os
 
-catalog = os.environ.get("CATALOG", "")
-schema = os.environ.get("SCHEMA", "")
+
+def setting(name: str) -> str:
+    """Read a setting from the environment (CI, local) or a notebook widget / job parameter."""
+    value = os.environ.get(name.upper(), "")
+    if not value and "dbutils" in globals():
+        try:
+            value = dbutils.widgets.get(name)
+        except Exception:
+            pass
+    return value
+
+
+catalog = setting("catalog")
+schema = setting("schema")
 eval_table = f"{catalog}.{schema}.{{ .input_initial_agent_name }}_eval_dataset"
 
-try:
-    eval_df = spark.table(eval_table).toPandas()
+if catalog and schema:
+    try:
+        spark  # predefined in Databricks notebooks
+    except NameError:
+        # Script or CI run: open a serverless Databricks Connect session.
+        from databricks.connect import DatabricksSession
+
+        spark = DatabricksSession.builder.serverless().getOrCreate()
+    try:
+        eval_df = spark.table(eval_table).toPandas()
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not load eval table {eval_table}: {e}\n"
+            "Create it by running eval/create_dataset.py against this target "
+            "(see 'Bootstrap each environment' in docs/setup.md). "
+            "The gate never falls back to sample data."
+        ) from e
     print(f"Loaded {len(eval_df)} examples from {eval_table}")
-except Exception as e:
-    print(f"Could not load eval table {eval_table}: {e}")
-    print("Using inline fallback dataset.")
+elif os.environ.get("EVAL_ALLOW_INLINE_DATASET", "").lower() in ("1", "true", "yes"):
+    # Explicit opt-in local smoke test only: never a stand-in for the UC dataset.
+    print("CATALOG/SCHEMA not set and EVAL_ALLOW_INLINE_DATASET is on: scoring the 2-example smoke set.")
     import pandas as pd
+
     eval_df = pd.DataFrame([
         {"inputs": {"messages": [{"role": "user", "content": "What is Databricks?"}]}},
         {"inputs": {"messages": [{"role": "user", "content": "How do I create a cluster?"}]}},
     ])
+else:
+    raise RuntimeError(
+        "CATALOG and SCHEMA must be set so the gate scores the UC eval table "
+        f"(<catalog>.<schema>.{{ .input_initial_agent_name }}_eval_dataset). "
+        "For a local smoke run without a table, set EVAL_ALLOW_INLINE_DATASET=1."
+    )
 
 eval_df.head()
 
@@ -95,15 +129,34 @@ eval_df.head()
 
 import mlflow
 
+# Built-in judges run on Databricks only when tracking points at Databricks;
+# otherwise they fall back to OpenAI and every judgment errors.
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "databricks"))
+
+# CI passes the target's bundle experiment as MLFLOW_EXPERIMENT_ID (from
+# `databricks bundle summary`). This named experiment is the fallback when no
+# experiment is set, e.g. before the target's first deploy.
 EXPERIMENT_NAME = "/Shared/{{ .input_project_name }}_{{ .input_initial_agent_name }}_eval"
-mlflow.set_experiment(EXPERIMENT_NAME)
+if not (os.environ.get("MLFLOW_EXPERIMENT_ID") or os.environ.get("MLFLOW_EXPERIMENT_NAME")):
+    mlflow.set_experiment(EXPERIMENT_NAME)
 
 from graph import graph
 
-def predict_fn(inputs: dict) -> str:
-    """Invoke the compiled graph synchronously for evaluation."""
-    result = graph.invoke({"messages": inputs.get("messages", [])})
+
+def as_message(message) -> dict:
+    """Rows read through Spark arrive as numpy arrays of mappings/Rows; LangChain needs dicts."""
+    return message.asDict(recursive=True) if hasattr(message, "asDict") else dict(message)
+
+
+def predict_fn(messages) -> str:
+    """Invoke the compiled graph for one example.
+
+    mlflow.genai.evaluate passes each row's `inputs` as keyword arguments, so the
+    parameter name must match the dataset's `inputs` key (`messages`).
+    """
+    result = graph.invoke({"messages": [as_message(m) for m in messages]})
     return result["messages"][-1].content
+
 
 results = mlflow.genai.evaluate(
     data=eval_df,
@@ -121,11 +174,12 @@ print(f"Metrics: {results.metrics}")
 
 # COMMAND ----------
 
-experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
-champion = find_champion(experiment.experiment_id)
+# The run's own experiment, however it was chosen (env var or the named fallback).
+experiment_id = mlflow.get_run(results.run_id).info.experiment_id
+champion = find_champion(experiment_id)
 
 if champion is None:
-    print("No champion found — first eval run. Auto-passing.")
+    print("No champion found: first eval run. Floors still apply; there is no baseline to compare against.")
 else:
     print(f"Champion run: {champion['run_id']}")
 

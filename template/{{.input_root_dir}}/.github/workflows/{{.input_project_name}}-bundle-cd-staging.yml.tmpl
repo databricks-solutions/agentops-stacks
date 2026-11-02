@@ -53,11 +53,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: databricks/setup-cli@{{template `cli_version` .}} # {{template `cli_version_tag` .}}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
       - name: Run eval gate for each agent (post-deploy)
+        # evaluate_agent.py scores the target's UC eval table with Databricks-hosted
+        # judges and exits non-zero when a gate fails or nothing could be scored.
+        # Host, catalog, schema and experiment come from the bundle, so they always
+        # match the target (including the experiment, once the target is deployed).
         run: |
+          summary=$(databricks bundle summary -t staging -o json)
+          export DATABRICKS_HOST=$(jq -r '.workspace.host' <<<"$summary")
+          export CATALOG=$(jq -r '.resources.schemas.project_schema.catalog_name' <<<"$summary")
+          export SCHEMA=$(jq -r '.resources.schemas.project_schema.name' <<<"$summary")
+          export MLFLOW_TRACKING_URI=databricks
+          experiment_id=$(jq -r '.resources.experiments.experiment.id // empty' <<<"$summary")
+          if [ -n "$experiment_id" ]; then export MLFLOW_EXPERIMENT_ID="$experiment_id"; fi
           for gates_file in $(find src/agents -name "gates.yml" -path "*/eval/gates.yml"); do
             agent_dir=$(dirname "$(dirname "$gates_file")")
             echo "Running eval gate for $agent_dir"

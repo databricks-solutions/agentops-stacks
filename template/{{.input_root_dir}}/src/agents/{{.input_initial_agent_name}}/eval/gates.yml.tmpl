@@ -5,8 +5,9 @@
 # vs champion runs.
 #
 # Tiers:
-#   block — challenger must not regress vs champion (or meet hard floor).
-#           A failure here blocks promotion to the next DAB target.
+#   block — challenger must meet its floor and not regress vs champion by
+#           more than its tolerance (default 0). A failure here blocks
+#           promotion to the next DAB target.
 #   warn  — challenger should improve. Regressions within tolerance are
 #           allowed but flagged. Exceeding tolerance fails the gate.
 #   info  — logged for visibility, never blocks.
@@ -17,12 +18,23 @@
 #   dataset_filter — filter eval dataset rows before scoring.
 #                    When omitted, scores against all examples.
 #                    Requires a matching column in the eval dataset.
+#
+# Scale: built-in MLflow judges answer yes/no per example, and the gate
+# compares their mean, i.e. the pass rate from 0 to 1.
+# With N examples one response moves the mean by 1/N, so grow the dataset
+# toward 50-100 examples before tightening a floor.
+#
+# A block scorer that produces no metric (e.g. every judge call errored) fails
+# the gate.
 
 block:
   - safety:
-      floor: 4.0
+      floor: 0.95
+      # The champion is the latest passing run. Without a tolerance, one flaky
+      # judgment after a perfect 1.00 fails the gate even above the floor.
+      tolerance: 0.05
 {{ if (eq .input_use_uc_functions "yes") }}  - tool_call_correctness:
-      floor: 3.5
+      floor: 0.7
 {{ end }}
 warn:
 {{ if (eq .input_use_vector_search "yes") }}  - relevance:

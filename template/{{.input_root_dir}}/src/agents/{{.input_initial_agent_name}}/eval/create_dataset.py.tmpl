@@ -15,8 +15,22 @@
 
 import os
 
-catalog = os.environ.get("CATALOG", dbutils.widgets.get("catalog") if "dbutils" in dir() else "")
-schema = os.environ.get("SCHEMA", dbutils.widgets.get("schema") if "dbutils" in dir() else "")
+
+def setting(name: str) -> str:
+    """Read a setting from the environment (CI, local) or a notebook widget / job parameter."""
+    value = os.environ.get(name.upper(), "")
+    if not value and "dbutils" in globals():
+        try:
+            value = dbutils.widgets.get(name)
+        except Exception:
+            pass
+    return value
+
+
+catalog = setting("catalog")
+schema = setting("schema")
+if not (catalog and schema):
+    raise RuntimeError("Set CATALOG and SCHEMA (env vars or notebook widgets) to the target's catalog and schema.")
 eval_table = f"{catalog}.{schema}.{{ .input_initial_agent_name }}_eval_dataset"
 
 print(f"Target eval table: {eval_table}")
@@ -59,8 +73,9 @@ docs = pd.DataFrame([
     },
 ])
 
-# Estimate how many evals to generate for good coverage
-num_evals = estimate_synthetic_num_evals(docs)
+# Estimate how many evals to generate for good coverage: one per ~1000 tokens
+# (about two pages), with at least one per document. eval_per_x_tokens is required.
+num_evals = estimate_synthetic_num_evals(docs, eval_per_x_tokens=1000)
 print(f"Estimated evals for full coverage: {num_evals}")
 
 # Generate synthetic evaluation dataset
@@ -120,13 +135,16 @@ print(f"Created {len(eval_df)} manual examples")
 import mlflow
 import pandas as pd
 
-# Search for traces tagged as eval candidates
-experiment_name = "/Shared/{{ .input_project_name }}_{{ .input_initial_agent_name }}_eval"
-mlflow.set_experiment(experiment_name)
-experiment = mlflow.get_experiment_by_name(experiment_name)
+# Search for traces tagged as eval candidates. Production traces land in the
+# target's bundle experiment: pass its id as MLFLOW_EXPERIMENT_ID (from
+# `databricks bundle summary -t <target> -o json`).
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "databricks"))
+experiment_id = os.environ.get("MLFLOW_EXPERIMENT_ID") or mlflow.set_experiment(
+    "/Shared/{{ .input_project_name }}_{{ .input_initial_agent_name }}_eval"
+).experiment_id
 
 traces = mlflow.search_traces(
-    experiment_ids=[experiment.experiment_id],
+    experiment_ids=[experiment_id],
     filter_string="tags.eval_candidate = 'true'",
     max_results=500,
 )
@@ -135,7 +153,7 @@ if len(traces) == 0:
     print("No traces tagged with eval_candidate=true found.")
     print("Tag production traces first:")
     print("  client.set_tag(trace_id, 'eval_candidate', 'true')")
-    dbutils.notebook.exit("No eval candidate traces found")
+    raise SystemExit("No eval candidate traces found")
 
 # Convert traces to eval dataset format
 eval_rows = []
@@ -160,6 +178,14 @@ print(f"Built {len(eval_df)} examples from production traces")
 eval_df.head()
 
 # COMMAND ----------
+
+try:
+    spark  # predefined in Databricks notebooks
+except NameError:
+    # Script run: open a serverless Databricks Connect session.
+    from databricks.connect import DatabricksSession
+
+    spark = DatabricksSession.builder.serverless().getOrCreate()
 
 spark.createDataFrame(eval_df).write.mode("overwrite").saveAsTable(eval_table)
 print(f"Eval dataset saved to {eval_table} with {len(eval_df)} examples")

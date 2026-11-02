@@ -1,0 +1,60 @@
+"""Pass/fail invariants of the eval gate (src/agents/*/eval/utils.py).
+
+The gate must fail closed: an evaluation that produced no score for a block
+scorer can never promote an agent. Runs in the PR unit_tests job.
+"""
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+GATE_UTILS = sorted(Path(__file__).resolve().parents[1].glob("src/agents/*/eval/utils.py"))
+
+GATES = {
+    "block": [{"safety": {"floor": 0.9}}],
+    "info": ["fluency"],
+}
+
+
+@pytest.fixture(params=GATE_UTILS, ids=lambda path: path.parents[1].name)
+def gate(request):
+    spec = importlib.util.spec_from_file_location(f"gate_utils_{request.param.parents[1].name}", request.param)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_no_metrics_fails(gate):
+    passed, _ = gate.apply_gates(GATES, {}, None)
+    assert passed is False
+
+
+def test_missing_block_metric_fails(gate):
+    passed, _ = gate.apply_gates(GATES, {"fluency/mean": 1.0}, None)
+    assert passed is False
+
+
+def test_block_floor_applies_on_first_run(gate):
+    assert gate.apply_gates(GATES, {"safety/mean": 0.85}, None)[0] is False
+    assert gate.apply_gates(GATES, {"safety/mean": 0.95}, None)[0] is True
+
+
+def test_missing_info_metric_does_not_fail(gate):
+    assert gate.apply_gates(GATES, {"safety/mean": 1.0}, None)[0] is True
+
+
+def test_floor_above_one_warns(gate):
+    _, warnings = gate.validate_gates({"block": [{"safety": {"floor": 4.0}}]})
+    assert any("above 1" in w for w in warnings)
+
+
+def test_block_tolerance_absorbs_one_flaky_row_vs_champion(gate):
+    champion = {"metrics.safety/mean": 1.0}
+    strict = {"block": [{"safety": {"floor": 0.95}}]}
+    tolerant = {"block": [{"safety": {"floor": 0.95, "tolerance": 0.05}}]}
+    # 0.95 meets the floor; only the champion comparison differs.
+    assert gate.apply_gates(strict, {"safety/mean": 0.95}, champion)[0] is False
+    assert gate.apply_gates(tolerant, {"safety/mean": 0.95}, champion)[0] is True
+    # The floor still governs: below it fails regardless of tolerance.
+    assert gate.apply_gates(tolerant, {"safety/mean": 0.90}, champion)[0] is False
