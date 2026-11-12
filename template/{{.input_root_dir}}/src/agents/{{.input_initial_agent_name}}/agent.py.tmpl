@@ -5,7 +5,9 @@ and component wiring live in graph.py and tools.py.
 """
 
 import logging
+{{ if (and (eq .input_use_lakebase "yes") (or (eq .input_memory_type "short_term") (eq .input_memory_type "both"))) -}}
 import uuid
+{{ end -}}
 from typing import AsyncGenerator
 
 import mlflow
