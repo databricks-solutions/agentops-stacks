@@ -77,6 +77,7 @@ def get_project_name(project_root: Path) -> str:
 
 
 def hyphenate(name: str) -> str:
+    """Convert an identifier to the hyphenated form used in app names."""
     return name.replace("_", "-")
 
 
@@ -87,6 +88,7 @@ def hyphenate(name: str) -> str:
 
 
 def render(template_name: str, subs: dict) -> str:
+    """Fill {{KEY}} placeholders in a supervisor template with subs."""
     raw = (TEMPLATE_DIR / template_name).read_text()
     for key, val in subs.items():
         raw = raw.replace("{{" + key + "}}", val)
@@ -314,6 +316,7 @@ supervisor:
 
 
 def main():
+    """CLI entry point: scaffold a supervisor agent that routes across agents."""
     parser = argparse.ArgumentParser(
         description="Add a supervisor agent to an AgentOps Stacks project"
     )
@@ -344,7 +347,7 @@ def main():
     )
     args = parser.parse_args()
 
-    if not NAME_RE.match(args.name):
+    if not NAME_RE.fullmatch(args.name):
         sys.exit(
             "ERROR: Supervisor name must start with a lowercase letter and "
             "contain only lowercase letters, digits, and underscores (min 3 chars)."

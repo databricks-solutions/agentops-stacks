@@ -183,10 +183,11 @@ def update_manifest(project_root: Path, new_name: str):
     # Append to agents list
     content = content.rstrip() + f"\n  - name: {new_name}\n"
     manifest_path.write_text(content)
-    print(f"  Updated: .agentops-stacks/manifest.yml")
+    print("  Updated: .agentops-stacks/manifest.yml")
 
 
 def main():
+    """CLI entry point: copy an existing agent and wire it into the bundle."""
     parser = argparse.ArgumentParser(
         description="Add a new agent to an AgentOps Stacks project"
     )
@@ -205,7 +206,7 @@ def main():
     args = parser.parse_args()
 
     # Validate name
-    if not re.match(r"^[a-z][a-z0-9_]{2,}$", args.name):
+    if not re.fullmatch(r"^[a-z][a-z0-9_]{2,}$", args.name):
         print(
             "ERROR: Agent name must start with a lowercase letter and contain only lowercase letters, digits, and underscores (min 3 chars)."
         )
@@ -236,11 +237,11 @@ def main():
     update_manifest(project_root, args.name)
 
     print(f"\nDone. New agent at: src/agents/{args.name}/")
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  1. cd src/agents/{args.name}")
-    print(f"  2. Edit graph.py and tools.py for this agent's behavior")
-    print(f"  3. Edit eval/gates.yml for this agent's quality bar")
-    print(f"  4. databricks bundle deploy -t dev")
+    print("  2. Edit graph.py and tools.py for this agent's behavior")
+    print("  3. Edit eval/gates.yml for this agent's quality bar")
+    print("  4. databricks bundle deploy -t dev")
 
 
 if __name__ == "__main__":

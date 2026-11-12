@@ -38,7 +38,7 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
 
     # --- Required infra inputs ---
     name = config.get("input_project_name", "")
-    if not NAME_PATTERN.match(name):
+    if not NAME_PATTERN.fullmatch(name):
         errors.append(
             f"Invalid project_name '{name}'. "
             "Must start with a lowercase letter, contain only lowercase letters/digits/underscores, "
@@ -46,7 +46,7 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
         )
 
     agent_name = config.get("input_initial_agent_name", "")
-    if not NAME_PATTERN.match(agent_name):
+    if not NAME_PATTERN.fullmatch(agent_name):
         errors.append(
             f"Invalid initial_agent_name '{agent_name}'. "
             "Same rules as project_name: lowercase letters/digits/underscores, min 3 chars."
@@ -115,12 +115,13 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
             "The chunked table setting will be ignored."
         )
 
-    if config.get("input_use_lakebase") == "yes":
-        mem = config.get("input_memory_type", "short_term")
-        if mem not in VALID_MEMORY_TYPES:
-            errors.append(
-                f"Invalid memory_type '{mem}'. Must be one of: {', '.join(sorted(VALID_MEMORY_TYPES))}"
-            )
+    # Checked even when lakebase is off: bundle init rejects an invalid value
+    # regardless of whether the prompt is skipped.
+    mem = config.get("input_memory_type", "short_term")
+    if mem not in VALID_MEMORY_TYPES:
+        errors.append(
+            f"Invalid memory_type '{mem}'. Must be one of: {', '.join(sorted(VALID_MEMORY_TYPES))}"
+        )
 
     if (
         config.get("input_use_uc_functions") == "no"
@@ -164,6 +165,7 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
 
 
 def main() -> int:
+    """CLI entry point: validate a config JSON file; return the exit code."""
     if len(sys.argv) != 3 or sys.argv[1] != "--config":
         print(f"Usage: {sys.argv[0]} --config <path-to-json>", file=sys.stderr)
         return 2
