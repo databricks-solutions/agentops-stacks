@@ -156,16 +156,58 @@ def test_name_regexes_match_schema(script):
     )
 
 
-@pytest.mark.parametrize("script", ["add_agent.py", "add_supervisor.py"])
+def _name_check_calls(path):
+    """(method, pattern) for each regex call that checks a name in a script.
+
+    Covers `re.<method>("^[a-z]...", x)` and `NAME.<method>(x)` where
+    `NAME = re.compile("^[a-z]...")`, so the test judges the call actually made.
+    """
+    tree = ast.parse(path.read_text())
+    compiled = {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "compile"
+            and node.value.args
+            and isinstance(node.value.args[0], ast.Constant)
+        ):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    compiled[target.id] = node.value.args[0].value
+    calls = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"match", "fullmatch", "search"}
+            and isinstance(node.func.value, ast.Name)
+        ):
+            continue
+        owner, method = node.func.value.id, node.func.attr
+        if owner == "re" and node.args and isinstance(node.args[0], ast.Constant):
+            pattern = node.args[0].value
+        elif owner in compiled:
+            pattern = compiled[owner]
+        else:
+            continue
+        if isinstance(pattern, str) and pattern.startswith("^[a-z]"):
+            calls.append((method, pattern))
+    return calls
+
+
+@pytest.mark.parametrize(
+    "script", ["validate_inputs.py", "add_agent.py", "add_supervisor.py"]
+)
 def test_name_check_rejects_trailing_newline(script):
     """Python's `$` with re.match accepts "abc\n". Go's `$` (the CLI) does not."""
-    source = (SCRIPTS / script).read_text()
-    uses_match = re.search(r"(?<!full)match\(", source) is not None
-    accepts = any(
-        (re.match if uses_match else re.fullmatch)(p, "abc\n")
-        for p in _regex_literals(SCRIPTS / script)
-    )
-    assert not accepts, f"{script}: name check accepts a trailing newline"
+    calls = _name_check_calls(SCRIPTS / script)
+    assert calls, f"{script}: no name check call found"
+    for method, pattern in calls:
+        assert not getattr(re, method)(
+            pattern, "abc\n"
+        ), f"{script}: {method}({pattern!r}) accepts a trailing newline"
 
 
 # ---------------------------------------------------------------------------
@@ -250,12 +292,13 @@ def _cases():
 CASES = _cases()
 
 
-def _cli_accepts(tmp_path, overrides):
+def _cli_verdict(tmp_path, overrides):
+    """(accepted, error text) from `databricks bundle init`."""
     try:
         generate(tmp_path, overrides)
-        return True
-    except RuntimeError:
-        return False
+        return True, ""
+    except RuntimeError as e:
+        return False, str(e)
 
 
 def _validator_accepts(overrides):
@@ -265,8 +308,15 @@ def _validator_accepts(overrides):
 
 @pytest.mark.parametrize("case_id,overrides,expected", CASES, ids=[c[0] for c in CASES])
 def test_input_case(tmp_path, case_id, overrides, expected):
+    cli_ok, cli_error = _cli_verdict(tmp_path, overrides)
+    if not cli_ok and not expected:
+        # A rejection only counts if the CLI blamed the input under test, not
+        # an unrelated init failure.
+        assert any(
+            name in cli_error for name in overrides
+        ), f"{case_id}: bundle init failed for another reason:\n{cli_error}"
     verdicts = {
-        "bundle_init": _cli_accepts(tmp_path, overrides),
+        "bundle_init": cli_ok,
         "validate_inputs": _validator_accepts(overrides),
     }
     wrong = sorted(layer for layer, ok in verdicts.items() if ok != expected)

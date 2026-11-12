@@ -12,6 +12,11 @@ from pathlib import Path
 import pytest
 
 from utils import (
+    ALL_COMPONENTS,
+    COMMENTED_POLICY_LINE,
+    EXAMPLE_USAGE_POLICY_ID as POLICY_ID,
+    POLICY_RESOURCE_FILES,
+    live_policy_lines,
     generate,
     paths,
     read_file,
@@ -480,26 +485,6 @@ def test_manifest_records_component_choices(tmp_path):
 # Usage tracking / cost-attribution tags
 # ---------------------------------------------------------------------------
 
-POLICY_ID = "1a2b3c4d-1234-5678-9abc-0123456789ab"
-ALL_COMPONENTS = {
-    "input_use_vector_search": "yes",
-    "input_use_lakebase": "yes",
-    "input_use_uc_functions": "yes",
-}
-LIVE_POLICY_LINE = "budget_policy_id: ${var.usage_policy_id}"
-COMMENTED_POLICY_LINE = "# budget_policy_id: ${var.usage_policy_id}"
-POLICY_RESOURCE_FILES = [
-    "databricks.yml",
-    "resources/lakebase.yml",
-    "resources/vector_search.yml",
-    "resources/data_pipeline.yml",
-    "resources/uc_function_registration.yml",
-]
-
-
-def _live_policy_lines(content):
-    return [l for l in content.splitlines() if l.strip() == LIVE_POLICY_LINE]
-
 
 def test_tags_disabled_renders_no_tagging(tmp_path):
     """Opting out renders nothing tag-related: no tags, policy, docs, or script."""
@@ -541,14 +526,14 @@ def test_tags_without_policy_comments_out_policy_lines(tmp_path):
     for f in POLICY_RESOURCE_FILES:
         content = read_file(p, f)
         assert COMMENTED_POLICY_LINE in content, f
-        assert not _live_policy_lines(content), f
+        assert not live_policy_lines(content), f
     assert 'default: ""' in read_file(p, "databricks.yml")
 
 
 def test_tags_with_policy_wires_policy_everywhere(tmp_path):
     p = gen(tmp_path, input_usage_policy_id=POLICY_ID, **ALL_COMPONENTS)
     for f in POLICY_RESOURCE_FILES:
-        assert _live_policy_lines(read_file(p, f)), f"No live policy line in {f}"
+        assert live_policy_lines(read_file(p, f)), f"No live policy line in {f}"
     assert f'default: "{POLICY_ID}"' in read_file(p, "databricks.yml")
 
 

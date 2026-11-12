@@ -105,13 +105,6 @@ def file_exists(project_dir, path):
     return (pathlib.Path(project_dir) / path).exists()
 
 
-def has_template_file(*path_parts):
-    """True if a template source file exists in the repo (for conditional skips)."""
-    return pathlib.Path(
-        RESOURCE_TEMPLATE_ROOT_DIRECTORY, "template", *path_parts
-    ).exists()
-
-
 def assert_no_disallowed_strings_in_files(
     file_paths, disallowed_strings, exclude_path_matches=None
 ):
@@ -203,6 +196,28 @@ COST_TAG_LEVELS = [
     {"input_enable_cost_tags": "yes", "input_usage_policy_id": ""},
     {"input_enable_cost_tags": "yes", "input_usage_policy_id": EXAMPLE_USAGE_POLICY_ID},
 ]
+# Usage-policy wiring: shared by test_create_project and the integration tests.
+ALL_COMPONENTS = {
+    "input_use_vector_search": "yes",
+    "input_use_lakebase": "yes",
+    "input_use_uc_functions": "yes",
+}
+LIVE_POLICY_LINE = "budget_policy_id: ${var.usage_policy_id}"
+COMMENTED_POLICY_LINE = "# budget_policy_id: ${var.usage_policy_id}"
+POLICY_RESOURCE_FILES = [
+    "databricks.yml",
+    "resources/lakebase.yml",
+    "resources/vector_search.yml",
+    "resources/data_pipeline.yml",
+    "resources/uc_function_registration.yml",
+]
+
+
+def live_policy_lines(content):
+    """Uncommented budget_policy_id lines in a file's content."""
+    return [l for l in content.splitlines() if l.strip() == LIVE_POLICY_LINE]
+
+
 CODE_FACTORS = [
     VECTOR_SEARCH_LEVELS,
     LAKEBASE_LEVELS,
@@ -306,6 +321,39 @@ def is_notebook(source):
     return source.startswith(NOTEBOOK_HEADER)
 
 
+# flake8's codes for pyflakes messages, so `# noqa: F401` suppresses only F401.
+PYFLAKES_CODES = {
+    "UnusedImport": "F401",
+    "ImportShadowedByLoopVar": "F402",
+    "ImportStarUsed": "F403",
+    "LateFutureImport": "F404",
+    "ImportStarUsage": "F405",
+    "FStringMissingPlaceholders": "F541",
+    "MultiValueRepeatedKeyLiteral": "F601",
+    "IsLiteral": "F632",
+    "RedefinedWhileUnused": "F811",
+    "UndefinedName": "F821",
+    "UndefinedExport": "F822",
+    "UndefinedLocal": "F823",
+    "DuplicateArgument": "F831",
+    "UnusedVariable": "F841",
+}
+NOQA_RE = re.compile(
+    r"#\s*noqa(?::\s*(?P<codes>[A-Z]+[0-9]+(?:[,\s]+[A-Z]+[0-9]+)*))?", re.I
+)
+
+
+def _suppressed(message, line):
+    """flake8 semantics: bare `# noqa` hides everything, `# noqa: X` only code X."""
+    m = NOQA_RE.search(line)
+    if not m:
+        return False
+    if not m.group("codes"):
+        return True
+    codes = {c.upper() for c in re.split(r"[,\s]+", m.group("codes")) if c}
+    return PYFLAKES_CODES.get(type(message).__name__) in codes
+
+
 def pyflakes_messages(relpath, source):
     """pyflakes findings, honoring `# noqa` on the reported line like flake8 does."""
     tree = ast.parse(source, filename=relpath)
@@ -314,7 +362,7 @@ def pyflakes_messages(relpath, source):
     return {
         f"{normalize(relpath)}: {m.message % m.message_args}"
         for m in w.messages
-        if "# noqa" not in lines[m.lineno - 1]
+        if not _suppressed(m, lines[m.lineno - 1])
     }
 
 

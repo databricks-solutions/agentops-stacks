@@ -244,17 +244,20 @@ def python_sources():
     return sources
 
 
-@pytest.mark.parametrize("path", sorted(python_sources()))
+PY_SOURCES = python_sources()
+
+
+@pytest.mark.parametrize("path", sorted(PY_SOURCES))
 def test_plugin_python_syntax(path):
     try:
-        ast.parse(python_sources()[path], filename=path)
+        ast.parse(PY_SOURCES[path], filename=path)
     except SyntaxError as e:
         pytest.fail(f"{path}:{e.lineno}: {e.msg}")
 
 
 def python_violations():
     found = set()
-    for path, source in python_sources().items():
+    for path, source in PY_SOURCES.items():
         found |= {f"pyflakes: {m}" for m in pyflakes_messages(path, source)}
         found |= {f"docstring: {m}" for m in docstring_violations(path, source)}
     return found
@@ -323,15 +326,6 @@ def block_error(lang, code):
     except Exception as e:  # noqa: BLE001 - report any parser error
         return str(e).splitlines()[0]
     return None
-
-
-def code_block_violations():
-    found = set()
-    for path in MARKDOWN_FILES:
-        for lang, line, code in code_blocks(path):
-            if block_error(lang, code):
-                found.add(f"{rel(path)}:{line} [{lang}]")
-    return found
 
 
 @pytest.mark.parametrize("path", [rel(p) for p in MARKDOWN_FILES])

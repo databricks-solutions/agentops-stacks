@@ -424,9 +424,10 @@ def test_full_matrix_static(project_factory, bundle_schema, params):
     assert_no_go_templates(project)
     assert_no_missing_template_values(project)
     flakes, docs = set(), set()
+    minor = requires_python_minor(project)
     for rel in files_with_suffix(project, ".py"):
         source = (project / rel).read_text()
-        ast.parse(source, filename=rel)
+        ast.parse(source, filename=rel, feature_version=(3, minor))
         flakes |= pyflakes_messages(rel, source)
         docs |= docstring_violations(rel, source)
     assert_none(flakes, "pyflakes")
