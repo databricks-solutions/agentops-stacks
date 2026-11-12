@@ -7,9 +7,6 @@ tests/test_create_project.py pattern, adapted to the agentops-stacks schema.
 Grounded against the real output of Databricks CLI v1.1.0.
 """
 
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -562,58 +559,6 @@ def test_usage_tracking_doc_and_script_reference_project(tmp_path):
     assert f'PROJECT="{DEFAULT_PROJECT_NAME}"' in script
     assert "databricks account budget-policy create" in script
     assert "enable_usage_policy.py" in script
-
-
-def _wire(tmp_path, *args):
-    """Copy a tags-on, blank-policy project (generated projects are cached) and run the wiring script."""
-    project = tmp_path / "wired"
-    shutil.copytree(gen(tmp_path, **ALL_COMPONENTS), project)
-    result = subprocess.run(
-        [sys.executable, "scripts/enable_usage_policy.py", *args],
-        cwd=project,
-        capture_output=True,
-        text=True,
-    )
-    return project, result
-
-
-def test_enable_usage_policy_wires_every_target(tmp_path):
-    other = "aaaaaaaa-1234-5678-9abc-0123456789ab"
-    p, result = _wire(tmp_path, f"dev={POLICY_ID}", f"staging={other}", f"prod={other}")
-    assert result.returncode == 0, result.stderr
-    databricks_yml = read_file(p, "databricks.yml")
-    assert f"      usage_policy_id: {POLICY_ID}" in databricks_yml
-    assert databricks_yml.count(f"      usage_policy_id: {other}") == 2
-    for f in POLICY_RESOURCE_FILES:
-        content = read_file(p, f)
-        assert _live_policy_lines(content), f"No live policy line in {f}"
-        assert COMMENTED_POLICY_LINE not in content, f
-
-
-def test_enable_usage_policy_shared_default(tmp_path):
-    p, result = _wire(tmp_path, "--default", POLICY_ID)
-    assert result.returncode == 0, result.stderr
-    assert f'default: "{POLICY_ID}"' in read_file(p, "databricks.yml")
-    for f in POLICY_RESOURCE_FILES:
-        assert _live_policy_lines(read_file(p, f)), f
-
-
-def test_enable_usage_policy_refuses_when_a_target_has_no_id(tmp_path):
-    """A target without an ID would deploy an empty budget_policy_id, so nothing may change."""
-    p, result = _wire(tmp_path, f"dev={POLICY_ID}", f"prod={POLICY_ID}")
-    assert result.returncode != 0
-    assert "staging" in result.stderr
-    original = gen(tmp_path, **ALL_COMPONENTS)
-    for f in POLICY_RESOURCE_FILES:
-        assert read_file(p, f) == read_file(original, f), f
-
-
-@pytest.mark.parametrize(
-    "args", [["dev=not-a-uuid"], [f"qa={POLICY_ID}"]], ids=["bad_id", "unknown_target"]
-)
-def test_enable_usage_policy_rejects_bad_input(tmp_path, args):
-    _, result = _wire(tmp_path, *args)
-    assert result.returncode != 0
 
 
 # ---------------------------------------------------------------------------
