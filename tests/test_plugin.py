@@ -121,17 +121,28 @@ def test_skill_sibling_refs_exist(skill):
     assert not missing, f"{skill}/SKILL.md references missing files: {missing}"
 
 
-def single_file_violations():
-    """Installers ship SKILL.md only, so a SKILL.md must not rely on sibling files."""
-    return {
-        f"single-file install: {skill} references {ref}"
-        for skill in SKILLS
-        for ref in sibling_refs(skill)
-    }
+# Skills point at sibling files (resources/, reference/, scripts/), so every
+# installer must copy the whole skill folder, not just SKILL.md.
+INSTALLER_COPY_RULES = {
+    "install_skills.sh": [
+        ('cp -R "$src/." "$dest/"', "local install copies the whole skill folder"),
+        (
+            'find "$skill_dir" -type f',
+            "workspace upload walks every file in the folder",
+        ),
+    ],
+    "install_genie_code_skills.py": [
+        ("codeload.github.com", "downloads the repo archive, not single files"),
+        ("_skill_files(archive)", "uploads every file under plugin/skills/<skill>/"),
+    ],
+}
 
 
-def test_installed_skills_are_self_contained():
-    assert_none(single_file_violations(), "single-file install")
+@pytest.mark.parametrize("installer", sorted(INSTALLER_COPY_RULES))
+def test_installers_copy_whole_skill_folders(installer):
+    source = (SKILLS_DIR / installer).read_text()
+    for snippet, why in INSTALLER_COPY_RULES[installer]:
+        assert snippet in source, f"{installer}: missing `{snippet}` ({why})"
 
 
 @pytest.mark.parametrize("command", COMMANDS)

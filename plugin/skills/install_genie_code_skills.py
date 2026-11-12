@@ -2,21 +2,24 @@
 # MAGIC %md
 # MAGIC # Install agentops-stacks Skills for Genie Code
 # MAGIC
-# MAGIC Uploads the agentops-stacks SKILL.md files to your workspace so Genie Code
+# MAGIC Uploads the agentops-stacks skill folders to your workspace so Genie Code
 # MAGIC can scaffold new DAB projects and guide them through the full production
-# MAGIC lifecycle.
+# MAGIC lifecycle. Each folder is copied whole: SKILL.md plus any resources/,
+# MAGIC reference/, or scripts/ it points at.
 # MAGIC
-# MAGIC Installs eight skills:
+# MAGIC Installs ten skills:
 # MAGIC - `agentops-bigbook` — advisory reference (Big Book of AgentOps): patterns, anti-patterns, eval, governance
 # MAGIC - `agentops-stacks` — scaffolds a new project via `databricks bundle init`
 # MAGIC - `agentops-lifecycle` — guides an existing scaffold through the 10-step dev→prod lifecycle
 # MAGIC - `add-agent` — adds a second agent to an existing scaffold
+# MAGIC - `add-supervisor` — adds a supervisor that routes across the project's agents
+# MAGIC - `right-size-capability` — decides whether a capability should be a UC-function tool, MCP server, or Agent Skill
 # MAGIC - `vector-search-ops` — operates and troubleshoots the Vector Search component
 # MAGIC - `lakebase-ops` — operates and troubleshoots the Lakebase memory component
 # MAGIC - `uc-functions-ops` — registers, grants, and manages UC function tools
 # MAGIC - `usage-tracking-ops` — tags resources and attaches usage policies for cost attribution
 # MAGIC
-# MAGIC Destination: `/Workspace/Users/<your_username>/.assistant/skills/<skill-name>/SKILL.md`
+# MAGIC Destination: `/Workspace/Users/<your_username>/.assistant/skills/<skill-name>/`
 # MAGIC
 # MAGIC **Prereqs in your workspace:** the Databricks CLI (already present in
 # MAGIC Genie Code) and the ai-dev-kit plugin skills installed under
@@ -50,7 +53,9 @@ GITHUB_REF = os.environ.get("AGENTOPS_GITHUB_REF", "main")
 # COMMAND ----------
 
 import base64
+import io
 import posixpath
+import tarfile
 import urllib.request
 
 from databricks.sdk import WorkspaceClient
@@ -83,6 +88,8 @@ SKILLS = [
     "agentops-stacks",
     "agentops-lifecycle",
     "add-agent",
+    "add-supervisor",
+    "right-size-capability",
     "vector-search-ops",
     "lakebase-ops",
     "uc-functions-ops",
@@ -95,23 +102,53 @@ skills_base = f"/Users/{username}/.assistant/skills"
 
 print(f"Username: {username}")
 print(f"Source:   github.com/{GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_REF}")
-print(f"Target:   /Workspace{skills_base}/<skill>/SKILL.md")
+print(f"Target:   /Workspace{skills_base}/<skill>/")
 print()
 
-# Each skill is a single SKILL.md. The template tree, library, schema, and
-# workflow definitions are read from the GitHub repo at run time — nothing
-# needs to be vendored next to the skill files in the workspace.
+# Copy each skill folder whole. One repo tarball download replaces a request
+# per file; members are read in memory and never extracted to disk.
+ARCHIVE_URL = (
+    f"https://codeload.github.com/{GITHUB_OWNER}/{GITHUB_REPO}/tar.gz/{GITHUB_REF}"
+)
+SKILLS_PREFIX = "/plugin/skills/"
+
+
+def _skill_files(archive):
+    """Map skill name -> {relative path: bytes} for every file under plugin/skills/."""
+    files = {}
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for member in tar.getmembers():
+            if not member.isfile() or SKILLS_PREFIX not in member.name:
+                continue
+            rest = member.name.split(SKILLS_PREFIX, 1)[1]
+            skill, _, rel = rest.partition("/")
+            parts = rel.split("/")
+            if (
+                skill not in SKILLS
+                or not rel
+                or ".." in parts
+                or "__pycache__" in parts
+            ):
+                continue
+            files.setdefault(skill, {})[rel] = tar.extractfile(member).read()
+    return files
+
+
+print(f"Downloading {ARCHIVE_URL} ...")
+archive = _download(ARCHIVE_URL)
+if archive is None:
+    raise RuntimeError(f"Could not download {ARCHIVE_URL}")
+skill_files = _skill_files(archive)
+
 for skill_name in SKILLS:
-    src_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_REF}/plugin/skills/{skill_name}/SKILL.md"
+    files = skill_files.get(skill_name, {})
+    if "SKILL.md" not in files:
+        raise RuntimeError(f"{skill_name}/SKILL.md not found in {ARCHIVE_URL}")
     skill_dest = f"{skills_base}/{skill_name}"
-
-    print(f"Installing {skill_name}...")
-    data = _download(src_url)
-    if data is None:
-        raise RuntimeError(f"Could not download {src_url}")
-
-    _upload(w, f"{skill_dest}/SKILL.md", data)
-    print(f"  OK  /Workspace{skill_dest}/SKILL.md")
+    print(f"Installing {skill_name} ({len(files)} files)...")
+    for rel, data in sorted(files.items()):
+        _upload(w, f"{skill_dest}/{rel}", data)
+        print(f"  OK  /Workspace{skill_dest}/{rel}")
 
 print()
 print("Done.")
