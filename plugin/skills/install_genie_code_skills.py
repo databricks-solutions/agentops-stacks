@@ -78,7 +78,16 @@ def _upload(w, workspace_path, content):
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
-SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops", "usage-tracking-ops"]
+SKILLS = [
+    "agentops-bigbook",
+    "agentops-stacks",
+    "agentops-lifecycle",
+    "add-agent",
+    "vector-search-ops",
+    "lakebase-ops",
+    "uc-functions-ops",
+    "usage-tracking-ops",
+]
 
 w = WorkspaceClient()
 username = w.current_user.me().user_name

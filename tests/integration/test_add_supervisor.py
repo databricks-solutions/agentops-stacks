@@ -1,4 +1,9 @@
-"""Tests for add_supervisor.py — the /add-supervisor engine.
+"""Integration tests for add_supervisor.py — the /add-supervisor engine.
+
+Excluded from the default pytest run (see `norecursedirs` in pytest.ini). Run
+them explicitly, e.g. from a Databricks workspace:
+
+    pytest tests/integration
 
 These build a minimal fake project tree (no Databricks CLI needed) and run the
 script's functions directly, asserting the supervisor wires into databricks.yml,
@@ -13,8 +18,12 @@ from pathlib import Path
 import pytest
 
 SCRIPT = (
-    Path(__file__).parent.parent
-    / "plugin" / "skills" / "agentops-stacks" / "scripts" / "add_supervisor.py"
+    Path(__file__).parent.parent.parent
+    / "plugin"
+    / "skills"
+    / "agentops-stacks"
+    / "scripts"
+    / "add_supervisor.py"
 )
 
 
@@ -108,6 +117,7 @@ def exists(root, rel):
 # Discovery helpers
 # --------------------------------------------------------------------------- #
 
+
 def test_find_project_root(project):
     nested = project / "src" / "agents" / "rag"
     assert addsup.find_project_root(nested) == project.resolve()
@@ -125,11 +135,16 @@ def test_get_project_name(project):
 # custom supervisor
 # --------------------------------------------------------------------------- #
 
+
 def test_custom_scaffolds_agent_app(project):
-    addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag", "support"])
+    addsup.scaffold_supervisor_agent(
+        project, "router", "custom", "rag", ["rag", "support"]
+    )
     # New agent dir with the supervisor graph + tools.
     assert exists(project, "src/agents/router/graph.py")
-    assert exists(project, "src/agents/router/eval/gates.yml")  # inherited → CI gates it
+    assert exists(
+        project, "src/agents/router/eval/gates.yml"
+    )  # inherited → CI gates it
     graph = read(project, "src/agents/router/graph.py")
     assert "create_supervisor" in graph
     assert "'rag'" in graph and "'support'" in graph
@@ -143,7 +158,9 @@ def test_custom_overwrites_agent_py(project):
     addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
     agent_py = read(project, "src/agents/router/agent.py")
     assert "AgentServer handlers (supervisor)" in agent_py
-    assert "get_async_checkpointer" not in agent_py  # not carried over from a lakebase base
+    assert (
+        "get_async_checkpointer" not in agent_py
+    )  # not carried over from a lakebase base
     assert "from graph import graph" in agent_py
 
 
@@ -180,6 +197,7 @@ def test_manifest_records_custom_supervisor(project):
 # Guards
 # --------------------------------------------------------------------------- #
 
+
 def test_manifest_not_double_written(project):
     addsup.update_manifest(project, "router", "custom", ["rag"])
     addsup.update_manifest(project, "router2", "custom", ["rag"])
@@ -197,6 +215,7 @@ def test_dep_not_duplicated(project):
 # Review fixes (PR #33) — runtime/startup blockers, caught structurally here
 # and validated at import out-of-band (see the PR's testing notes).
 # --------------------------------------------------------------------------- #
+
 
 def test_custom_graph_drops_messages_state_schema(project):
     # Blocker 1: create_supervisor(state_schema=MessagesState) raises
@@ -220,9 +239,19 @@ def test_empty_routes_rejected(project, monkeypatch):
     # Empty --routes scaffolds create_supervisor([]) / an empty managed tool
     # list, which can't start. Reject at the CLI instead of scaffolding it.
     monkeypatch.setattr(
-        sys, "argv",
-        ["add_supervisor", "--name", "router", "--type", "custom",
-         "--routes", "", "--project-dir", str(project)],
+        sys,
+        "argv",
+        [
+            "add_supervisor",
+            "--name",
+            "router",
+            "--type",
+            "custom",
+            "--routes",
+            "",
+            "--project-dir",
+            str(project),
+        ],
     )
     with pytest.raises(SystemExit):
         addsup.main()
@@ -233,7 +262,8 @@ def test_rename_is_token_aware():
     # Raw str.replace corrupts identifiers that merely contain the source name
     # (storage -> stoROUTERe); underscored compounds (proj_rag_eval) must rename.
     out = addsup._rename_identifier(
-        "storage myrag rag rag_eval proj_rag_eval", "rag", "router")
+        "storage myrag rag rag_eval proj_rag_eval", "rag", "router"
+    )
     assert out == "storage myrag router router_eval proj_router_eval"
 
 
@@ -241,16 +271,19 @@ def test_rename_does_not_corrupt_copied_files(project):
     # Integration: a copied file whose text contains the source name as a
     # substring survives the scaffold rename intact.
     (project / "src" / "agents" / "rag" / "notes.py").write_text(
-        "storage_path = '/tmp'  # rag notes\n")
+        "storage_path = '/tmp'  # rag notes\n"
+    )
     addsup.scaffold_supervisor_agent(project, "router", "custom", "rag", ["rag"])
     notes = read(project, "src/agents/router/notes.py")
-    assert "storage_path" in notes       # not corrupted to stoROUTERe_path
-    assert "# router notes" in notes     # standalone token still renamed
+    assert "storage_path" in notes  # not corrupted to stoROUTERe_path
+    assert "# router notes" in notes  # standalone token still renamed
 
 
 def test_deps_added_for_alternate_langgraph_pin(tmp_path):
     # The dep insert must not silently no-op on a non->= langgraph pin shape.
-    for i, pin in enumerate(('"langgraph==1.1.0",', '"langgraph~=1.1",', '"langgraph",')):
+    for i, pin in enumerate(
+        ('"langgraph==1.1.0",', '"langgraph~=1.1",', '"langgraph",')
+    ):
         py = tmp_path / f"pp_{i}.toml"
         py.write_text(f"[project]\ndependencies = [\n    {pin}\n]\n")
         addsup._add_supervisor_deps(py)
@@ -270,9 +303,19 @@ def test_invalid_type_rejected(project, monkeypatch):
     # Only `custom` remains valid; the removed supervisor_api must be rejected by
     # argparse rather than scaffolding anything.
     monkeypatch.setattr(
-        sys, "argv",
-        ["add_supervisor", "--name", "router", "--type", "supervisor_api",
-         "--routes", "rag", "--project-dir", str(project)],
+        sys,
+        "argv",
+        [
+            "add_supervisor",
+            "--name",
+            "router",
+            "--type",
+            "supervisor_api",
+            "--routes",
+            "rag",
+            "--project-dir",
+            str(project),
+        ],
     )
     with pytest.raises(SystemExit):
         addsup.main()
@@ -295,7 +338,8 @@ variables:
 def _enable_tags(project, live: bool):
     yml = project / "databricks.yml"
     content = yml.read_text().replace(
-        "include:", TAGGED_VARIABLES.format(policy_id="abc" if live else "") + "include:"
+        "include:",
+        TAGGED_VARIABLES.format(policy_id="abc" if live else "") + "include:",
     )
     policy = "budget_policy_id: ${var.usage_policy_id}"
     content = content.replace(

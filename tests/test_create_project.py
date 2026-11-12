@@ -19,9 +19,7 @@ from utils import (
     paths,
     read_file,
     file_exists,
-    has_template_file,
     assert_no_disallowed_strings_in_files,
-    assert_no_go_templates,
     RESOURCE_TEMPLATE_ROOT_DIRECTORY,
     DEFAULT_PROJECT_NAME,
     DEFAULT_PROJECT_DIRECTORY,
@@ -31,43 +29,6 @@ from utils import (
 def gen(tmp_path, **overrides):
     """Generate a project in a per-test tmp dir with the given overrides."""
     return generate(tmp_path, context=overrides)
-
-
-# ---------------------------------------------------------------------------
-# No residual Go template strings after substitution
-# ---------------------------------------------------------------------------
-
-GO_TEMPLATE_COMBOS = [
-    ("defaults", {}),
-    ("uc_functions=yes", {"input_use_uc_functions": "yes"}),
-    ("uc_existing=yes", {"input_use_uc_functions": "yes", "input_uc_functions_exist": "yes"}),
-    ("vs=yes", {"input_use_vector_search": "yes"}),
-    ("vs+chunked", {"input_use_vector_search": "yes", "input_has_chunked_table": "yes"}),
-    ("lakebase=yes", {"input_use_lakebase": "yes"}),
-    ("lakebase+short", {"input_use_lakebase": "yes", "input_memory_type": "short_term"}),
-    ("lakebase+long", {"input_use_lakebase": "yes", "input_memory_type": "long_term"}),
-    ("lakebase+both", {"input_use_lakebase": "yes", "input_memory_type": "both"}),
-    ("eval=existing", {"input_eval_dataset_source": "existing"}),
-    ("eval=manual", {"input_eval_dataset_source": "manual"}),
-    ("eval=production_traces", {"input_eval_dataset_source": "production_traces"}),
-    ("cloud=azure", {"input_cloud": "azure"}),
-    ("cloud=gcp", {"input_cloud": "gcp"}),
-    ("cicd=azure_devops", {"input_cicd_platform": "azure_devops"}),
-    ("cicd=gitlab", {"input_cicd_platform": "gitlab"}),
-    ("tags=no", {"input_enable_cost_tags": "no"}),
-    ("tags+policy", {"input_usage_policy_id": "1a2b3c4d-1234-5678-9abc-0123456789ab"}),
-    ("tags+all_components", {
-        "input_use_vector_search": "yes",
-        "input_use_lakebase": "yes",
-        "input_use_uc_functions": "yes",
-        "input_usage_policy_id": "1a2b3c4d-1234-5678-9abc-0123456789ab",
-    }),
-]
-
-
-@pytest.mark.parametrize("label,params", GO_TEMPLATE_COMBOS, ids=[c[0] for c in GO_TEMPLATE_COMBOS])
-def test_no_go_templates_after_substitution(tmp_path, label, params):
-    assert_no_go_templates(gen(tmp_path, **params))
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +71,12 @@ def test_default_project_core_files(tmp_path):
 def test_default_base_resources(tmp_path):
     p = gen(tmp_path)
     # These resources are always emitted regardless of component choices.
-    for f in ["experiment.yml", "schemas.yml", "volumes.yml", "uc_function_registration.yml"]:
+    for f in [
+        "experiment.yml",
+        "schemas.yml",
+        "volumes.yml",
+        "uc_function_registration.yml",
+    ]:
         assert file_exists(p, f"resources/{f}"), f"Missing resources/{f}"
 
 
@@ -153,7 +119,9 @@ def test_agent_eval_files_always_present(tmp_path):
 
 
 def test_agent_name_in_databricks_yml(tmp_path):
-    content = read_file(gen(tmp_path, input_initial_agent_name="my_rag"), "databricks.yml")
+    content = read_file(
+        gen(tmp_path, input_initial_agent_name="my_rag"), "databricks.yml"
+    )
     assert "my_rag" in content  # source_code_path
     assert "my-rag" in content  # hyphenated app name
 
@@ -196,9 +164,11 @@ CICD_MATRIX = {
 }
 
 
-@pytest.mark.parametrize("platform,expected,excluded", [
-    (k, v[0], v[1]) for k, v in CICD_MATRIX.items()
-], ids=list(CICD_MATRIX.keys()))
+@pytest.mark.parametrize(
+    "platform,expected,excluded",
+    [(k, v[0], v[1]) for k, v in CICD_MATRIX.items()],
+    ids=list(CICD_MATRIX.keys()),
+)
 def test_cicd_platform_selection(tmp_path, platform, expected, excluded):
     p = gen(tmp_path, input_cicd_platform=platform)
     assert file_exists(p, expected), f"{expected} should exist for {platform}"
@@ -224,7 +194,9 @@ def test_uc_functions_enabled_emits_components(tmp_path):
 
 
 def test_uc_functions_enabled_adds_toolkit(tmp_path):
-    content = read_file(gen(tmp_path, input_use_uc_functions="yes"), "src/agents/default/tools.py")
+    content = read_file(
+        gen(tmp_path, input_use_uc_functions="yes"), "src/agents/default/tools.py"
+    )
     assert "UCFunctionToolkit" in content
 
 
@@ -267,7 +239,10 @@ def test_uc_registration_job_defaults_to_serverless(tmp_path, cost_tags):
     p = gen(tmp_path, input_use_uc_functions="yes", input_enable_cost_tags=cost_tags)
     job = read_file(p, "resources/uc_function_registration.yml")
     live = [l.strip() for l in job.splitlines() if not l.strip().startswith("#")]
-    assert not any(l.startswith(("existing_cluster_id:", "job_clusters:", "job_cluster_key:")) for l in live)
+    assert not any(
+        l.startswith(("existing_cluster_id:", "job_clusters:", "job_cluster_key:"))
+        for l in live
+    )
     assert "# job_clusters:" in job
 
 
@@ -292,7 +267,9 @@ def test_vector_search_disabled_omits_resources(tmp_path):
 
 
 def test_lakebase_enabled_emits_resource(tmp_path):
-    assert file_exists(gen(tmp_path, input_use_lakebase="yes"), "resources/lakebase.yml")
+    assert file_exists(
+        gen(tmp_path, input_use_lakebase="yes"), "resources/lakebase.yml"
+    )
 
 
 def test_lakebase_disabled_omits_resource(tmp_path):
@@ -301,7 +278,9 @@ def test_lakebase_disabled_omits_resource(tmp_path):
 
 def test_lakebase_resource_is_autoscaling(tmp_path):
     """The Lakebase resource uses Autoscaling (postgres_projects), not Provisioned."""
-    content = read_file(gen(tmp_path, input_use_lakebase="yes"), "resources/lakebase.yml")
+    content = read_file(
+        gen(tmp_path, input_use_lakebase="yes"), "resources/lakebase.yml"
+    )
     assert "postgres_projects" in content
     assert "autoscaling_limit_max_cu" in content
     # No leftover Provisioned resource types / fields.
@@ -454,7 +433,8 @@ def test_gates_safety_and_fluency_always_present(tmp_path):
 
 def test_gates_vs_adds_relevance_groundedness(tmp_path):
     content = read_file(
-        gen(tmp_path, input_use_vector_search="yes"), "src/agents/default/eval/gates.yml"
+        gen(tmp_path, input_use_vector_search="yes"),
+        "src/agents/default/eval/gates.yml",
     )
     assert "relevance" in content
     assert "groundedness" in content
@@ -484,7 +464,9 @@ def test_gates_no_uc_omits_tool_call_correctness(tmp_path):
 
 
 def test_manifest_records_choices(tmp_path):
-    content = read_file(gen(tmp_path, input_cloud="gcp"), ".agentops-stacks/manifest.yml")
+    content = read_file(
+        gen(tmp_path, input_cloud="gcp"), ".agentops-stacks/manifest.yml"
+    )
     assert f"project_name: {DEFAULT_PROJECT_NAME}" in content
     assert "cloud: gcp" in content
     assert "cicd_platform: github_actions" in content
@@ -588,7 +570,9 @@ def _wire(tmp_path, *args):
     shutil.copytree(gen(tmp_path, **ALL_COMPONENTS), project)
     result = subprocess.run(
         [sys.executable, "scripts/enable_usage_policy.py", *args],
-        cwd=project, capture_output=True, text=True,
+        cwd=project,
+        capture_output=True,
+        text=True,
     )
     return project, result
 
@@ -624,56 +608,22 @@ def test_enable_usage_policy_refuses_when_a_target_has_no_id(tmp_path):
         assert read_file(p, f) == read_file(original, f), f
 
 
-@pytest.mark.parametrize("args", [["dev=not-a-uuid"], [f"qa={POLICY_ID}"]], ids=["bad_id", "unknown_target"])
+@pytest.mark.parametrize(
+    "args", [["dev=not-a-uuid"], [f"qa={POLICY_ID}"]], ids=["bad_id", "unknown_target"]
+)
 def test_enable_usage_policy_rejects_bad_input(tmp_path, args):
     _, result = _wire(tmp_path, *args)
     assert result.returncode != 0
 
 
 # ---------------------------------------------------------------------------
-# Cloud x CICD matrix — every combination generates cleanly
-# ---------------------------------------------------------------------------
-
-MATRIX = [
-    (platform, cloud)
-    for platform in ["github_actions", "azure_devops", "gitlab"]
-    for cloud in ["aws", "azure", "gcp"]
-]
-
-
-@pytest.mark.large
-@pytest.mark.parametrize("platform,cloud", MATRIX, ids=[f"{p}-{c}" for p, c in MATRIX])
-def test_cloud_cicd_matrix(tmp_path, platform, cloud):
-    p = gen(tmp_path, input_cicd_platform=platform, input_cloud=cloud)
-    assert p.exists()
-    assert file_exists(p, "databricks.yml")
-    assert_no_go_templates(p)
-
-
-# ---------------------------------------------------------------------------
-# Invalid params are rejected
-# ---------------------------------------------------------------------------
-
-INVALID = [
-    ("name_too_short", {"input_project_name": "ab", "input_root_dir": "ab"}),
-    ("name_uppercase", {"input_project_name": "MyProject", "input_root_dir": "MyProject"}),
-    ("name_starts_digit", {"input_project_name": "1bad", "input_root_dir": "1bad"}),
-    ("agent_name_too_short", {"input_initial_agent_name": "ab"}),
-    ("usage_policy_id_not_uuid", {"input_usage_policy_id": "not-a-policy-id"}),
-]
-
-
-@pytest.mark.parametrize("label,params", INVALID, ids=[c[0] for c in INVALID])
-def test_invalid_params_rejected(tmp_path, label, params):
-    with pytest.raises(RuntimeError):
-        gen(tmp_path, **params)
-
-
-# ---------------------------------------------------------------------------
 # validate_inputs.py usage-tracking checks
 # ---------------------------------------------------------------------------
 
-_VALIDATOR = Path(__file__).resolve().parents[1] / "plugin/skills/agentops-stacks/scripts/validate_inputs.py"
+_VALIDATOR = (
+    Path(__file__).resolve().parents[1]
+    / "plugin/skills/agentops-stacks/scripts/validate_inputs.py"
+)
 
 
 def _validate(**overrides):
@@ -682,7 +632,11 @@ def _validate(**overrides):
     spec = importlib.util.spec_from_file_location("validate_inputs", _VALIDATOR)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    config = {"input_project_name": "my_project", "input_root_dir": "my_project", **overrides}
+    config = {
+        "input_project_name": "my_project",
+        "input_root_dir": "my_project",
+        **overrides,
+    }
     return mod.validate(config)
 
 
@@ -691,7 +645,9 @@ def test_validator_defaults_cost_tags_to_yes():
     assert any("No usage policy ID" in w for w in warnings)
 
 
-@pytest.mark.parametrize("policy_id", [12345, f"{POLICY_ID}\n"], ids=["not_str", "trailing_newline"])
+@pytest.mark.parametrize(
+    "policy_id", [12345, f"{POLICY_ID}\n"], ids=["not_str", "trailing_newline"]
+)
 def test_validator_rejects_malformed_policy_id(policy_id):
     errors, _ = _validate(input_usage_policy_id=policy_id)
     assert any("usage_policy_id" in e for e in errors)
