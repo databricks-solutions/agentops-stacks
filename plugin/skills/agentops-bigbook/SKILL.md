@@ -30,7 +30,7 @@ comes *before* you scaffold. The funnel:
 > → **`agentops-stacks`** (scaffold the project)
 > → **`add-agent`** / **`add-supervisor`** (compose it)
 > → **`agentops-lifecycle`** (build → eval-gate → dev/staging/prod → monitor)
-> → **`vector-search-ops`** / **`uc-functions-ops`** / **`lakebase-ops`** (operate the components).
+> → **`vector-search-ops`** / **`uc-functions-ops`** / **`lakebase-ops`** / **`unity-gateway-ops`** (operate the components).
 
 Use this skill for the decisions; hand off to the others to execute. `agentops-lifecycle` is the
 hands-on complement — it walks the same lifecycle this skill frames, step by step.
@@ -202,6 +202,7 @@ This skill is advisory. For execution, hand off to the agentops-stacks skill tha
 | Stand up / troubleshoot **RAG retrieval** (Vector Search index, sync, retriever) | **`vector-search-ops`** |
 | Register / troubleshoot **UC-function tools** (grants, registration) | **`uc-functions-ops`** |
 | **State store / agent memory** — pause-resume, checkpointer (short- & long-term) | **`lakebase-ops`** |
+| Add a governed **model service, model provider service, or MCP service** to the project DAB | **`unity-gateway-ops`** |
 | Build **eval datasets / scorers**, judges, `mlflow.genai.evaluate()`, tracing | MLflow GenAI evaluation & Tracing (wired by `agentops-lifecycle`, Steps 4–5 & 10) |
 | Deploy to a **serving endpoint** / stand up a **UI** | Databricks Model Serving / Databricks Apps (the scaffold provisions per-agent Apps) |
 | **Governance / grants / audit tables / on-behalf-of-user** | Unity Catalog |

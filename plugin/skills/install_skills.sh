@@ -2,10 +2,10 @@
 #
 # agentops-stacks plugin installer
 #
-# Installs agentops-stacks skills (SKILL.md files) into a project at
+# Installs agentops-stacks skill directories into a project at
 # .claude/skills/<skill-name>/. Skills shell out to the Databricks CLI and
 # reference the template tree, schema, and workflow definitions from this repo
-# at run time — nothing is vendored next to the skill files.
+# at run time. Skill-local references are copied with their SKILL.md.
 #
 # Usage:
 #   ./install_skills.sh                              # install from local repo
@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "right-size-capability" "vector-search-ops" "lakebase-ops" "uc-functions-ops" "usage-tracking-ops")
+SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "right-size-capability" "vector-search-ops" "lakebase-ops" "uc-functions-ops" "usage-tracking-ops" "unity-gateway-ops")
 SKILLS_DIR=".claude/skills"
 INSTALL_TO_GENIE=false
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
@@ -57,6 +57,7 @@ show_help() {
     echo "  - lakebase-ops:       Operate and troubleshoot the Lakebase memory component"
     echo "  - uc-functions-ops:   Register, grant, and manage UC function tools"
     echo "  - usage-tracking-ops: Tag resources and attach usage policies for cost attribution"
+    echo "  - unity-gateway-ops:  Add model, provider, and MCP services to an existing DAB"
     echo ""
 }
 
@@ -97,6 +98,9 @@ list_skills() {
     echo -e "  ${GREEN}usage-tracking-ops${NC}"
     echo "    Tag resources, set up serverless usage policies, query attributed usage"
     echo ""
+    echo -e "  ${GREEN}unity-gateway-ops${NC}"
+    echo "    Add DAB-owned model services, model provider services, and MCP services"
+    echo ""
 }
 
 install_skill() {
@@ -112,7 +116,11 @@ install_skill() {
     rm -rf "$dest"
     mkdir -p "$dest"
     cp "$src/SKILL.md" "$dest/SKILL.md"
-    echo -e "  ${GREEN}✓${NC} $skill_name/SKILL.md"
+    if [ -d "$src/references" ]; then
+        mkdir -p "$dest/references"
+        cp -R "$src/references/." "$dest/references/"
+    fi
+    echo -e "  ${GREEN}✓${NC} $skill_name"
 }
 
 check_prereqs() {
@@ -165,10 +173,16 @@ upload_skill_to_genie_workspace() {
     fi
 
     echo -e "  ${GREEN}Uploading${NC} $skill_name"
-    databricks workspace mkdirs "$skills_path/$skill_name" --profile "$db_profile" 2>/dev/null || true
-    databricks workspace import "$skills_path/$skill_name/SKILL.md" \
-        --file "$skill_dir/SKILL.md" --profile "$db_profile" \
-        --format AUTO --overwrite 2>/dev/null || true
+    local file relative_path remote_path remote_dir
+    while IFS= read -r file; do
+        relative_path="${file#$skill_dir/}"
+        remote_path="$skills_path/$skill_name/$relative_path"
+        remote_dir=$(dirname "$remote_path")
+        databricks workspace mkdirs "$remote_dir" --profile "$db_profile" 2>/dev/null || true
+        databricks workspace import "$remote_path" \
+            --file "$file" --profile "$db_profile" \
+            --format AUTO --overwrite 2>/dev/null || true
+    done < <(find "$skill_dir" -type f | sort)
 }
 
 install_skills_to_genie_workspace() {
