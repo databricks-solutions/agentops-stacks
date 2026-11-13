@@ -148,6 +148,8 @@ def test_skill_documents_identity_parent_access_and_governance_record():
     assert "Missing sibling resource types do not" in skill
     assert "every generated CI/CD definition" in skill
     assert "deployment CLI cannot read" in skill
+    assert "OAuth M2M" in skill
+    assert "Never introduce or recommend a personal access token" in skill
 
 
 def test_project_owned_services_use_the_resolved_bundle_schema():

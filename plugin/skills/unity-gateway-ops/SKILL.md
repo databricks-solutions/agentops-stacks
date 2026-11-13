@@ -217,6 +217,12 @@ Runtime callers must exist and have `USE CATALOG`, `USE SCHEMA`, and `EXECUTE`
 on the service. Document missing identity or parent grants as blocking
 prerequisites rather than assuming deployment or invocation access.
 
+CI/CD deployers must authenticate as their environment's service principal with
+OAuth M2M (or the cloud-native workload identity supported by that target).
+Never introduce or recommend a personal access token for Gateway deployment.
+Credential values belong only in the CI platform's protected secret store, not
+in bundle YAML, workflow files, command arguments, or the operational record.
+
 ### Model service
 
 Also require:
@@ -429,8 +435,8 @@ Before declaring the change complete, report and document:
   processor.
 - **Storage and logging:** inference table or other payload logging, unified
   tracing if separately enabled, audit records, and retention ownership.
-- **Credentials:** where credentials live, who can access them, and who owns
-  rotation.
+- **Credentials:** where provider credentials and CI OAuth M2M credentials
+  live, who can access them, and who owns rotation. Never record their values.
 - **Permissions:** deployer privileges, owner, consumer grants, and parent
   `USE CATALOG` / `USE SCHEMA` requirements.
 - **Compliance:** data classification, provider-region implications, and any
