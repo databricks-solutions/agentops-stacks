@@ -21,7 +21,7 @@ Confirm fields against the installed `databricks bundle schema` before editing.
 resources:
   model_services:
     <resource_key>:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       model_service_id: <unqualified-service-id>
       config:
         routing:
@@ -54,7 +54,7 @@ three-part model service name in the resource body; DAB derives it from
 resources:
   model_services:
     assistant_model:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       model_service_id: assistant-model
       comment: "Governed model service for ${bundle.name}"
       config:
@@ -88,7 +88,7 @@ External provider:
 ```yaml
 destination_type: DESTINATION_TYPE_EXTERNAL_FOUNDATION_MODEL
 external_model_config:
-  model_provider_service: model-provider-services/${var.catalog}.${var.schema}.<provider-service-id>
+  model_provider_service: model-provider-services/<catalog>.<schema>.<provider-service-id>
   target:
     model: <exact-provider-model>
     native_api_types:
@@ -133,7 +133,7 @@ list in every target.
 
 ```yaml
 inference_table:
-  parent: schemas/${var.catalog}.${var.schema}
+  parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
   table_name_prefix: <prefix>
 ```
 

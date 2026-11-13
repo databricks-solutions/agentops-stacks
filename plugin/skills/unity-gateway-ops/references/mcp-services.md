@@ -24,7 +24,7 @@ Confirm fields against the installed `databricks bundle schema` before editing.
 resources:
   mcp_services:
     <resource_key>:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       mcp_service_id: <unqualified-service-id>
       config:
         source_connection:
@@ -52,7 +52,7 @@ user to explicitly approve exposing every tool.
 resources:
   mcp_services:
     support_tools:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       mcp_service_id: support-tools
       comment: "Governed MCP service for ${bundle.name}"
       config:

@@ -146,6 +146,48 @@ def test_skill_documents_identity_parent_access_and_governance_record():
     assert "governance/posture.md" in skill
     assert "prerequisite before production promotion" in skill
     assert "Missing sibling resource types do not" in skill
+    assert "every generated CI/CD definition" in skill
+    assert "deployment CLI cannot read" in skill
+
+
+def test_project_owned_services_use_the_resolved_bundle_schema():
+    markdown_files = [SKILL, *sorted((SKILL_DIR / "references").glob("*.md"))]
+    all_text = "\n".join(read(path) for path in markdown_files)
+
+    resolved_parent = (
+        "parent: schemas/${var.catalog}."
+        "${resources.schemas.project_schema.name}"
+    )
+    assert resolved_parent in all_text
+    assert "parent: schemas/${var.catalog}.${var.schema}" not in all_text
+    assert "development-mode rewriting" in read(SKILL)
+
+
+def test_generated_ci_cli_pin_supports_unity_gateway_schema():
+    variables = read(ROOT / "library" / "template_variables.tmpl")
+    sha_match = re.search(
+        r"define `cli_version`.*?\n\s*([0-9a-f]{40})", variables, re.DOTALL
+    )
+    tag_match = re.search(
+        r"define `cli_version_tag`.*?\n\s*v(\d+)\.(\d+)\.(\d+)",
+        variables,
+        re.DOTALL,
+    )
+
+    assert sha_match, "Generated CI must use an immutable setup-cli commit SHA"
+    assert tag_match, "Generated CI must document the corresponding CLI tag"
+    assert tuple(map(int, tag_match.groups())) >= (1, 17, 0)
+
+    generated_root = ROOT / "template" / "{{.input_root_dir}}"
+    ci_templates = [
+        path
+        for path in generated_root.rglob("*.tmpl")
+        if {".github", ".gitlab", ".azure"} & set(path.parts)
+        and "databricks/setup-cli" in read(path)
+    ]
+    assert ci_templates
+    for path in ci_templates:
+        assert "{{template `cli_version` .}}" in read(path), path
 
 
 def test_installed_bundle_schema_supports_all_three_resources():

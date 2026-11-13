@@ -155,14 +155,18 @@ Before editing files:
 
 3. Run `databricks --version`. DAB support for these resources requires CLI
    1.17.0 or later.
-4. Run `databricks bundle schema` locally and verify that its resource map
+4. Inspect every generated CI/CD definition that deploys this bundle. Confirm
+   its Databricks CLI pin is also 1.17.0 or later and supports the fields
+   selected from the local schema. Stop and require a CI pin update when local
+   authoring would produce configuration that the deployment CLI cannot read.
+5. Run `databricks bundle schema` locally and verify that its resource map
    contains the requested resource type. Treat this installed schema as
    authoritative for supported fields. Missing sibling resource types do not
    block authoring the requested supported type.
-5. Inspect the bundle's existing targets, `catalog` and `schema` variables, and
+6. Inspect the bundle's existing targets, `catalog` and `schema` variables, and
    resource includes. Do not assume the project has a target named `qa`. Confirm
    that the same service configuration is acceptable in every target.
-6. If workspace validation or deployment is requested, list every configured
+7. If workspace validation or deployment is requested, list every configured
    Databricks profile and workspace URL and ask the user to select one. Never
    select a profile automatically. Verify the selected profile points to the
    workspace the user named before continuing.
@@ -197,8 +201,12 @@ All service types require:
 - data classification and whether requests or responses may contain sensitive
   data.
 
-Use `schemas/${var.catalog}.${var.schema}` as the parent unless the project has
-an established, target-aware alternative.
+Use `schemas/${var.catalog}.${resources.schemas.project_schema.name}` as the
+parent when the scaffold has its standard `project_schema` resource. This uses
+the actual schema name after development-mode rewriting. If the project uses a
+different schema resource key, reference that resource's resolved `name`; use an
+exact external schema name only when the service intentionally lives outside the
+bundle-owned project schema.
 
 Users, service principals, catalogs, and schemas are environment prerequisites;
 this skill does not create them. Confirm that each target catalog and schema
@@ -273,12 +281,14 @@ must still contain the distinct supported mappings (`model_services`,
 `model_provider_services`, or `mcp_services`) under `resources`; it must never
 contain a `unity_gateway` mapping.
 
-Use existing target variables for environment resolution. For example,
-`schemas/${var.catalog}.${var.schema}` creates the same logical service in each
-target's schema. When a provider secret or MCP connection is environment-local,
-use a stable target-aware name or variable that resolves to a corresponding
-object in each workspace. This does not authorize sharing secret values or data
-between environments.
+Use resolved bundle-resource names for project-owned dependencies. In the
+standard scaffold,
+`schemas/${var.catalog}.${resources.schemas.project_schema.name}` creates the
+same logical service in each target's actual schema, including the rewritten dev
+schema. When a provider secret or MCP connection is environment-local, use its
+exact existing name or a stable target-aware variable that resolves to a
+corresponding object in each workspace. This does not authorize sharing secret
+values or data between environments.
 
 ### Minimal model service pattern
 
@@ -288,7 +298,7 @@ Use the installed bundle schema to confirm every field before writing it:
 resources:
   model_services:
     <resource_key>:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       model_service_id: <service_id>
       comment: "Governed model service for ${bundle.name}"
       config:
@@ -314,7 +324,7 @@ named model.
 resources:
   mcp_services:
     <resource_key>:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       mcp_service_id: <service_id>
       comment: "Governed MCP service for ${bundle.name}"
       config:
@@ -341,7 +351,7 @@ configuration. The common shape is:
 resources:
   model_provider_services:
     <resource_key>:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       model_provider_service_id: <service_id>
       comment: "Governed external model provider for ${bundle.name}"
       config:

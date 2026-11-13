@@ -26,7 +26,7 @@ Confirm provider-specific fields against the installed
 resources:
   model_provider_services:
     <resource_key>:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       model_provider_service_id: <unqualified-service-id>
       config:
         provider_type: <provider-enum>
@@ -108,7 +108,7 @@ instead of writing a placeholder that appears deployable.
 resources:
   model_provider_services:
     external_openai:
-      parent: schemas/${var.catalog}.${var.schema}
+      parent: schemas/${var.catalog}.${resources.schemas.project_schema.name}
       model_provider_service_id: external-openai
       comment: "Governed external provider for ${bundle.name}"
       config:
