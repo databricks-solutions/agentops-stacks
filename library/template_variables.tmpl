@@ -1,11 +1,14 @@
 # define template variables
 
 # databricks/setup-cli pinned to a commit SHA (supply-chain hardening).
-# SHA below is the immutable commit for tag v0.299.1. To bump: resolve the new
+# SHA below is the immutable commit for tag v1.26.0. To bump: resolve the new
 # tag to its commit SHA (`gh api repos/databricks/setup-cli/git/refs/tags/<tag>`)
-# and replace the value here, keeping the version in the trailing comment.
+# and replace both values here.
 {{ define `cli_version` -}}
-    79dbb80ee737b2809d7e9fbc1acf4bbf1a95a0f2
+    2da6132749245fbffb3c10d57cec219de3669967
+{{- end }}
+{{ define `cli_version_tag` -}}
+    v1.26.0
 {{- end }}
 
 # Serverless usage-policy attribution line for resources that support
