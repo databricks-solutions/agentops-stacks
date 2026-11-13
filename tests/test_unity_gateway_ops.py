@@ -76,6 +76,31 @@ def test_skill_frontmatter_is_project_scoped_and_resource_addressable():
     assert "imperative Unity Gateway administration" in description
 
 
+def test_mcp_routing_distinguishes_server_creation_from_gateway_registration():
+    skill = read(SKILL)
+    description = frontmatter(SKILL)["description"]
+    mcp_reference = read(SKILL_DIR / "references" / "mcp-services.md")
+    normalized_reference = " ".join(mcp_reference.split())
+    right_size = read(
+        ROOT / "plugin" / "skills" / "right-size-capability" / "SKILL.md"
+    )
+    normalized_right_size = " ".join(right_size.split())
+
+    assert 'Clarify ambiguous "create an MCP service/server"' in description
+    assert "not building the server application" in description
+    assert "Do not infer Gateway registration" in skill
+    assert "Build or host an MCP server on Databricks Apps" in skill
+    assert "Build an MCP server outside Databricks" in skill
+    assert "finish the Databricks App and its UC HTTP" in normalized_reference
+    assert "external to Unity Gateway" in normalized_reference
+    assert "not necessarily external to Databricks" in normalized_reference
+    assert "Databricks App/component-creation workflow" in normalized_right_size
+    assert (
+        "Building a server outside Databricks is out of scope"
+        in normalized_right_size
+    )
+
+
 def test_all_resource_references_are_present_and_routed_from_skill():
     actual = {path.name for path in (SKILL_DIR / "references").glob("*.md")}
     assert actual == REFERENCES
@@ -359,4 +384,4 @@ def test_documentation_and_advisory_routing_are_integrated():
     assert "unity-gateway-ops" in plugin_readme
     assert "unity-gateway-ops" in bigbook
     assert "unity-gateway-ops" in right_size
-    assert "existing external MCP server" in right_size
+    assert "existing backing MCP server" in right_size

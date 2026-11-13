@@ -7,6 +7,14 @@ and
 [MCP service config](https://learn.microsoft.com/en-us/azure/databricks/dev-tools/bundles/resources#mcp_service-config).
 Confirm fields against the installed `databricks bundle schema` before editing.
 
+This resource governs an existing backing MCP server; it does not create or
+host the server application. The backing server can be hosted on Databricks
+Apps or outside Databricks. This skill creates neither: route Databricks App
+creation to the app/component-creation workflow, and treat off-Databricks
+server creation as out of scope for the AgentOps Stacks skillset. For a request
+that includes both creation and governance, finish the Databricks App and its
+UC HTTP connection before adding this resource.
+
 ## V1 contract
 
 - Create one new top-level `mcp_services` entry.
@@ -101,8 +109,9 @@ selection and governance boundary.
 
 The deployer needs permission to create the service in the parent schema and
 `USE CONNECTION` on the source connection. The source connection owns the
-external server URL and authentication configuration. Document where tool
-arguments and results flow, what the external server stores, and whether user
+backing server URL and authentication configuration. "Backing" means external
+to Unity Gateway, not necessarily external to Databricks. Document where tool
+arguments and results flow, what the backing server stores, and whether user
 identity is propagated.
 
 After deployment, list tools and confirm the selectors. Invoke only a read-only

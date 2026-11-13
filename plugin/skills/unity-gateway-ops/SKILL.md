@@ -1,12 +1,16 @@
 ---
 name: unity-gateway-ops
 description: >-
-  Add a new model service, model provider service, MCP service, or user-described
-  Unity Gateway element to an existing AgentOps Stacks Declarative Automation
-  Bundle. Use even when the user names one of those resources without saying
-  "Unity Gateway." Authors DAB resource YAML only. Do not use for querying
-  existing services, imperative Unity Gateway administration, legacy AI Gateway
-  configuration, or migration.
+  Add a new model service, model provider service, governed MCP service, or
+  user-described Unity Gateway element to an existing AgentOps Stacks
+  Declarative Automation Bundle. For MCP, this means registering an existing
+  backing server as a Unity Gateway `mcp_services` resource, not building the
+  server application. Clarify ambiguous "create an MCP service/server"
+  requests before authoring. Use for model service and model provider service
+  resources even when the user names them without saying "Unity Gateway."
+  Authors DAB resource YAML only. Do not use for querying existing services,
+  imperative Unity Gateway administration, legacy AI Gateway configuration,
+  migration, or building MCP servers.
 compatibility: Requires Databricks CLI >= 1.17.0 and the DAB direct deployment engine
 ---
 
@@ -53,6 +57,23 @@ ambiguous, ask whether they mean a three-part Unity Catalog model service
 (`model_services`) or a workspace Model Serving endpoint
 (`model_serving_endpoints`). This clarification is resource-type selection, not
 legacy gateway detection or migration.
+
+"MCP service" can mean either the server application or the governed Unity
+Gateway resource. Before authoring `mcp_services`, distinguish these intents:
+
+- **Build or host an MCP server on Databricks Apps:** route to the Databricks
+  App/component-creation workflow. This skill does not build the server.
+- **Register or govern an existing backing MCP server:** continue with this
+  skill after its reachable endpoint and UC HTTP connection exist.
+- **Build an MCP server outside Databricks:** state that AgentOps Stacks does
+  not provide that creation workflow.
+- **Build and govern a Databricks-hosted server:** complete the app first, then
+  return to this skill for the DAB-owned Gateway resource.
+
+If the request merely says "create/add an MCP service/server," ask which intent
+the user means. Do not infer Gateway registration from the phrase "MCP
+service" alone. Here, "backing MCP server" means a server external to Unity
+Gateway; it does not imply that the server is hosted outside Databricks.
 
 Use the general `databricks-unity-gateway` product skill instead when the user
 wants to query or administer an existing service outside an AgentOps Stacks
