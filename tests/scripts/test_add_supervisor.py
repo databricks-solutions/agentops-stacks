@@ -1,9 +1,10 @@
-"""Integration tests for add_supervisor.py — the /add-supervisor engine.
+"""Script tests for add_supervisor.py — the /add-supervisor engine.
 
-Excluded from the default pytest run (see `norecursedirs` in pytest.ini). Run
-them explicitly, e.g. from a Databricks workspace:
+These run the script's functions, so they are excluded from the default static
+run (see `norecursedirs` in pytest.ini). No CLI or workspace is needed. CI runs
+them as a separate step:
 
-    pytest tests/integration
+    pytest tests/scripts
 
 These build a minimal fake project tree (no Databricks CLI needed) and run the
 script's functions directly, asserting the supervisor wires into databricks.yml,

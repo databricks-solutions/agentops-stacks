@@ -7,8 +7,9 @@ generated is executed and no real workspace is contacted (auth is stubbed in
 utils.generate). It requires the Databricks CLI (>= the schema's
 min_databricks_cli_version) on PATH.
 
-tests/integration is excluded from default collection (pytest.ini) and does not
-need the CLI.
+tests/scripts runs plugin and generated scripts on local temp projects. It is
+excluded from default collection (pytest.ini) and run separately with
+`pytest tests/scripts`. Only test_enable_usage_policy.py there needs the CLI.
 """
 
 import shutil
@@ -17,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-INTEGRATION_DIR = Path(__file__).parent / "tests" / "integration"
+SCRIPT_TESTS_DIR = Path(__file__).parent / "tests" / "scripts"
 
 
 def pytest_configure(config):
@@ -25,8 +26,10 @@ def pytest_configure(config):
 
 
 def _needs_cli(session):
-    """True if any collected test lives outside tests/integration."""
-    return any(INTEGRATION_DIR not in Path(item.path).parents for item in session.items)
+    """True if any collected test lives outside tests/scripts."""
+    return any(
+        SCRIPT_TESTS_DIR not in Path(item.path).parents for item in session.items
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

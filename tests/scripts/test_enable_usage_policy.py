@@ -1,10 +1,11 @@
-"""Integration tests for the generated scripts/enable_usage_policy.py.
+"""Script tests for the generated scripts/enable_usage_policy.py.
 
-These run the generated script, so they are excluded from the default pytest
-run (see `norecursedirs` in pytest.ini). They need the Databricks CLI on PATH
-to generate the project. Run them explicitly:
+These run the generated script on a local temp project, so they are excluded
+from the default static run (see `norecursedirs` in pytest.ini). They need the
+Databricks CLI on PATH to generate the project, with auth stubbed; no workspace
+is contacted. CI runs them as a separate step:
 
-    pytest tests/integration
+    pytest tests/scripts
 """
 
 import shutil
