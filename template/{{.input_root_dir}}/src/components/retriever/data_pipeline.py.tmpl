@@ -29,6 +29,7 @@ VOLUME_PATH = f"/Volumes/{spark.conf.get('catalog')}/{spark.conf.get('schema')}/
     comment="Raw documents ingested from source",
 )
 def raw_docs():
+    """Stream raw source documents from the landing volume."""
     # TODO: Replace with your ingestion logic
     return (
         spark.readStream.format("cloudFiles")
@@ -53,6 +54,7 @@ def raw_docs():
     table_properties={"delta.enableChangeDataFeed": "true"},
 )
 def chunked_docs():
+    """Split raw documents into chunks for Vector Search delta sync."""
     # TODO: Replace with real chunking logic
     return (
         dlt.read_stream("{{ .input_project_name }}_raw_docs")

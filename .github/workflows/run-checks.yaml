@@ -23,6 +23,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r dev-requirements.txt
-      - name: Run template generation tests
+      # Static checks only: tests/scripts is excluded by pytest.ini.
+      - name: Run static checks
         run: |
-          pytest tests -vv
+          pytest --large --black -vv
+      # Plugin and generated scripts, run on local temp projects. No workspace.
+      - name: Run script tests
+        run: |
+          pytest tests/scripts --black -vv

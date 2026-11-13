@@ -26,6 +26,7 @@ TARGET_POLICY_LINE = re.compile(r"^      #?\s*usage_policy_id:\s*(.*?)\s*$")
 
 
 def parse_args():
+    """Parse TARGET=ID assignments and --default; return (per_target, default_id)."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("assignments", nargs="*", metavar="TARGET=ID", help="Policy ID for a target")
     parser.add_argument("--default", dest="default_id", help="Shared policy ID for all targets")
@@ -40,7 +41,7 @@ def parse_args():
     if not per_target and not args.default_id:
         parser.error("pass TARGET=ID pairs and/or --default ID")
     for label, policy_id in [*per_target.items(), ("--default", args.default_id)]:
-        if policy_id is not None and not UUID.match(policy_id):
+        if policy_id is not None and not UUID.fullmatch(policy_id):
             parser.error(f"{label}: '{policy_id}' is not a usage policy ID (UUID)")
     return per_target, args.default_id
 
@@ -118,6 +119,7 @@ def target_policy(lines, target):
 
 
 def uncomment_policy_lines(path):
+    """Uncomment budget_policy_id lines in path; return how many were changed."""
     text = path.read_text().splitlines(keepends=True)
     changed = 0
     for i, line in enumerate(text):
@@ -131,6 +133,7 @@ def uncomment_policy_lines(path):
 
 
 def main():
+    """Write policy IDs into databricks.yml and enable budget_policy_id lines."""
     per_target, default_id = parse_args()
     lines = BUNDLE_FILE.read_text().splitlines(keepends=True)
     targets = target_blocks(lines)

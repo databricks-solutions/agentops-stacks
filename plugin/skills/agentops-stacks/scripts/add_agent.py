@@ -17,6 +17,7 @@ import shutil
 import sys
 from pathlib import Path
 
+
 def find_project_root(start: Path) -> Path:
     """Walk up from start to find the project root (has databricks.yml)."""
     current = start.resolve()
@@ -32,7 +33,9 @@ def find_existing_agents(project_root: Path) -> list[str]:
     agents_dir = project_root / "src" / "agents"
     if not agents_dir.exists():
         return []
-    return [d.name for d in agents_dir.iterdir() if d.is_dir() and (d / "agent.py").exists()]
+    return [
+        d.name for d in agents_dir.iterdir() if d.is_dir() and (d / "agent.py").exists()
+    ]
 
 
 def _rename_identifier(text: str, source: str, target: str) -> str:
@@ -80,13 +83,15 @@ def copy_agent(project_root: Path, source_name: str, new_name: str):
 def get_project_name(project_root: Path) -> str:
     """Extract the bundle name from databricks.yml."""
     content = (project_root / "databricks.yml").read_text()
-    match = re.search(r'^\s*name:\s*(.+)$', content, re.MULTILINE)
+    match = re.search(r"^\s*name:\s*(.+)$", content, re.MULTILINE)
     if match:
         return match.group(1).strip()
     return "unknown"
 
 
-def usage_tracking_snippets(content: str, project_name: str, agent_name: str) -> tuple[str, str]:
+def usage_tracking_snippets(
+    content: str, project_name: str, agent_name: str
+) -> tuple[str, str]:
     """Return (experiment_tags, app_policy_line) matching the project's usage
     tracking setup, or ("", "") when the project was scaffolded without tags.
 
@@ -105,7 +110,9 @@ def usage_tracking_snippets(content: str, project_name: str, agent_name: str) ->
         - key: agent
           value: {agent_name}"""
     policy = "budget_policy_id: ${var.usage_policy_id}"
-    if not re.search(r"^\s*budget_policy_id: \$\{var\.usage_policy_id\}", content, re.MULTILINE):
+    if not re.search(
+        r"^\s*budget_policy_id: \$\{var\.usage_policy_id\}", content, re.MULTILINE
+    ):
         policy = f"# {policy}  # TODO: wire with scripts/enable_usage_policy.py — see docs/usage-tracking.md"
     return experiment_tags, f"\n      {policy}"
 
@@ -117,7 +124,9 @@ def append_to_databricks_yml(project_root: Path, new_name: str):
     project_name = get_project_name(project_root)
     hyphenated_name = new_name.replace("_", "-")
     hyphenated_project = project_name.replace("_", "-")
-    experiment_tags, app_policy_line = usage_tracking_snippets(content, project_name, new_name)
+    experiment_tags, app_policy_line = usage_tracking_snippets(
+        content, project_name, new_name
+    )
 
     # Build the new experiment block
     experiment_block = f"""
@@ -174,19 +183,33 @@ def update_manifest(project_root: Path, new_name: str):
     # Append to agents list
     content = content.rstrip() + f"\n  - name: {new_name}\n"
     manifest_path.write_text(content)
-    print(f"  Updated: .agentops-stacks/manifest.yml")
+    print("  Updated: .agentops-stacks/manifest.yml")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Add a new agent to an AgentOps Stacks project")
-    parser.add_argument("--name", required=True, help="Name for the new agent (lowercase, underscores)")
-    parser.add_argument("--from", dest="source", default=None, help="Existing agent to copy from (default: first found)")
-    parser.add_argument("--project-dir", default=".", help="Project root directory (default: current)")
+    """CLI entry point: copy an existing agent and wire it into the bundle."""
+    parser = argparse.ArgumentParser(
+        description="Add a new agent to an AgentOps Stacks project"
+    )
+    parser.add_argument(
+        "--name", required=True, help="Name for the new agent (lowercase, underscores)"
+    )
+    parser.add_argument(
+        "--from",
+        dest="source",
+        default=None,
+        help="Existing agent to copy from (default: first found)",
+    )
+    parser.add_argument(
+        "--project-dir", default=".", help="Project root directory (default: current)"
+    )
     args = parser.parse_args()
 
     # Validate name
-    if not re.match(r'^[a-z][a-z0-9_]{2,}$', args.name):
-        print("ERROR: Agent name must start with a lowercase letter and contain only lowercase letters, digits, and underscores (min 3 chars).")
+    if not re.fullmatch(r"^[a-z][a-z0-9_]{2,}$", args.name):
+        print(
+            "ERROR: Agent name must start with a lowercase letter and contain only lowercase letters, digits, and underscores (min 3 chars)."
+        )
         sys.exit(1)
 
     project_root = find_project_root(Path(args.project_dir))
@@ -214,11 +237,11 @@ def main():
     update_manifest(project_root, args.name)
 
     print(f"\nDone. New agent at: src/agents/{args.name}/")
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  1. cd src/agents/{args.name}")
-    print(f"  2. Edit graph.py and tools.py for this agent's behavior")
-    print(f"  3. Edit eval/gates.yml for this agent's quality bar")
-    print(f"  4. databricks bundle deploy -t dev")
+    print("  2. Edit graph.py and tools.py for this agent's behavior")
+    print("  3. Edit eval/gates.yml for this agent's quality bar")
+    print("  4. databricks bundle deploy -t dev")
 
 
 if __name__ == "__main__":

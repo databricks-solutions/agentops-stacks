@@ -1,1 +1,6 @@
 pytest==7.4.4
+pytest-black==0.6.0
+black==26.10.1
+pyflakes==4.1.0
+PyYAML==6.0.3
+jsonschema==4.26.0

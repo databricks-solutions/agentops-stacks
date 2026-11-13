@@ -26,7 +26,6 @@ from mlflow.genai.scorers import (
     Safety,
     ToolCallCorrectness,
     Completeness,
-    scorer,
 )
 
 mlflow.set_experiment("/Shared/{{ .input_project_name }}_eval")
@@ -63,6 +62,8 @@ for name, s in builtin_scorers.items():
 # Example: domain-specific scorer that checks if the response mentions sources.
 # Uncomment, customize, and re-run this notebook to register.
 
+# from mlflow.genai.scorers import scorer
+#
 # @scorer
 # def cites_sources(request, response) -> float:
 #     """Check whether the agent's response cites source documents."""

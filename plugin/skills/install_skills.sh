@@ -2,10 +2,10 @@
 #
 # agentops-stacks plugin installer
 #
-# Installs agentops-stacks skills (SKILL.md files) into a project at
-# .claude/skills/<skill-name>/. Skills shell out to the Databricks CLI and
-# reference the template tree, schema, and workflow definitions from this repo
-# at run time — nothing is vendored next to the skill files.
+# Installs agentops-stacks skills into a project at .claude/skills/<skill-name>/.
+# Each skill folder is copied whole (SKILL.md plus any resources/, reference/,
+# or scripts/ it points at). Skills shell out to the Databricks CLI and read the
+# template tree, schema, and workflow definitions from this repo at run time.
 #
 # Usage:
 #   ./install_skills.sh                              # install from local repo
@@ -25,6 +25,7 @@ NC='\033[0m'
 SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "right-size-capability" "vector-search-ops" "lakebase-ops" "uc-functions-ops" "usage-tracking-ops")
 SKILLS_DIR=".claude/skills"
 INSTALL_TO_GENIE=false
+UPLOAD_FAILURES=0
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -111,8 +112,11 @@ install_skill() {
 
     rm -rf "$dest"
     mkdir -p "$dest"
-    cp "$src/SKILL.md" "$dest/SKILL.md"
-    echo -e "  ${GREEN}✓${NC} $skill_name/SKILL.md"
+    cp -R "$src/." "$dest/"
+    find "$dest" -name __pycache__ -type d -prune -exec rm -rf {} +
+    local count
+    count=$(find "$dest" -type f | wc -l | tr -d ' ')
+    echo -e "  ${GREEN}✓${NC} $skill_name/ ($count files)"
 }
 
 check_prereqs() {
@@ -165,10 +169,22 @@ upload_skill_to_genie_workspace() {
     fi
 
     echo -e "  ${GREEN}Uploading${NC} $skill_name"
-    databricks workspace mkdirs "$skills_path/$skill_name" --profile "$db_profile" 2>/dev/null || true
-    databricks workspace import "$skills_path/$skill_name/SKILL.md" \
-        --file "$skill_dir/SKILL.md" --profile "$db_profile" \
-        --format AUTO --overwrite 2>/dev/null || true
+    local path rel err
+    # Create each directory once, then import every file. Failures are counted
+    # in UPLOAD_FAILURES so a partial skill folder is reported, not hidden.
+    while IFS= read -r -d '' path; do
+        rel="${path#"$skill_dir"}"
+        databricks workspace mkdirs "$skills_path/$skill_name$rel" --profile "$db_profile" >/dev/null 2>&1 || true
+    done < <(find "$skill_dir" -type d -not -path '*/__pycache__*' -print0)
+    while IFS= read -r -d '' path; do
+        rel="${path#"$skill_dir"/}"
+        if ! err=$(databricks workspace import "$skills_path/$skill_name/$rel" \
+            --file "$path" --profile "$db_profile" \
+            --format AUTO --overwrite 2>&1); then
+            echo -e "    ${RED}failed${NC} $rel: $err"
+            UPLOAD_FAILURES=$((UPLOAD_FAILURES + 1))
+        fi
+    done < <(find "$skill_dir" -type f -not -path '*/__pycache__/*' -print0)
 }
 
 install_skills_to_genie_workspace() {
@@ -213,6 +229,12 @@ install_skills_to_genie_workspace() {
         [ -d "$skill_dir" ] || continue
         upload_skill_to_genie_workspace "$skill_dir" "$skills_path" "$DB_PROFILE"
     done
+
+    if [ "$UPLOAD_FAILURES" -gt 0 ]; then
+        echo ""
+        echo -e "${RED}Error: $UPLOAD_FAILURES file(s) failed to upload. Skill folders in $skills_path are incomplete.${NC}"
+        return 1
+    fi
 
     echo ""
     echo -e "${GREEN}Workspace listing:${NC}"

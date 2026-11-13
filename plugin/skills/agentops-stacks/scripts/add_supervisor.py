@@ -48,6 +48,7 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "supervisor_templates"
 # Project discovery
 # --------------------------------------------------------------------------- #
 
+
 def find_project_root(start: Path) -> Path:
     """Walk up from start to find the project root (has databricks.yml)."""
     current = start.resolve()
@@ -64,8 +65,7 @@ def find_existing_agents(project_root: Path) -> list[str]:
     if not agents_dir.exists():
         return []
     return sorted(
-        d.name for d in agents_dir.iterdir()
-        if d.is_dir() and (d / "agent.py").exists()
+        d.name for d in agents_dir.iterdir() if d.is_dir() and (d / "agent.py").exists()
     )
 
 
@@ -77,6 +77,7 @@ def get_project_name(project_root: Path) -> str:
 
 
 def hyphenate(name: str) -> str:
+    """Convert an identifier to the hyphenated form used in app names."""
     return name.replace("_", "-")
 
 
@@ -85,7 +86,9 @@ def hyphenate(name: str) -> str:
 # to avoid any interaction with `databricks bundle init`).
 # --------------------------------------------------------------------------- #
 
+
 def render(template_name: str, subs: dict) -> str:
+    """Fill {{KEY}} placeholders in a supervisor template with subs."""
     raw = (TEMPLATE_DIR / template_name).read_text()
     for key, val in subs.items():
         raw = raw.replace("{{" + key + "}}", val)
@@ -105,8 +108,10 @@ def _rename_identifier(text: str, source: str, target: str) -> str:
 # scaffold the supervisor as an agent App
 # --------------------------------------------------------------------------- #
 
-def scaffold_supervisor_agent(project_root: Path, name: str, sup_type: str,
-                              source: str, routes: list[str]):
+
+def scaffold_supervisor_agent(
+    project_root: Path, name: str, sup_type: str, source: str, routes: list[str]
+):
     """Copy an existing agent as the base, then overwrite graph/tools/deps with
     the supervisor variant. Keeps the eval harness, app server, and app.yaml so
     the CI eval gate and Databricks App serving work unchanged."""
@@ -164,8 +169,10 @@ def _add_supervisor_deps(pyproject: Path):
     holds langgraph >=1.0.2,<2.0.0, keeping create_react_agent available.
     """
     if not pyproject.exists():
-        print(f"  WARN: no pyproject.toml at {pyproject} — add the supervisor "
-              f"dependency manually before `uv sync`.")
+        print(
+            f"  WARN: no pyproject.toml at {pyproject} — add the supervisor "
+            f"dependency manually before `uv sync`."
+        )
         return
     content = pyproject.read_text()
     dep = '    "langgraph-supervisor>=0.0.31,<0.1",'
@@ -185,19 +192,23 @@ def _add_supervisor_deps(pyproject: Path):
         # No langgraph pin in the expected shape — fall back to the head of the
         # dependencies array so the dep still lands.
         new_content, n = re.subn(
-            r'(dependencies\s*=\s*\[)',
+            r"(dependencies\s*=\s*\[)",
             r"\1\n" + dep,
             content,
             count=1,
         )
     if n == 0:
-        print(f"  WARN: couldn't find a langgraph pin or a dependencies list in "
-              f"{pyproject}. Add {dep.strip()} manually before `uv sync`.")
+        print(
+            f"  WARN: couldn't find a langgraph pin or a dependencies list in "
+            f"{pyproject}. Add {dep.strip()} manually before `uv sync`."
+        )
         return
     pyproject.write_text(new_content)
 
 
-def usage_tracking_snippets(content: str, project_name: str, agent_name: str) -> tuple[str, str]:
+def usage_tracking_snippets(
+    content: str, project_name: str, agent_name: str
+) -> tuple[str, str]:
     """Return (experiment_tags, app_policy_line) matching the project's usage
     tracking setup, or ("", "") when the project was scaffolded without tags.
 
@@ -216,7 +227,9 @@ def usage_tracking_snippets(content: str, project_name: str, agent_name: str) ->
         - key: agent
           value: {agent_name}"""
     policy = "budget_policy_id: ${var.usage_policy_id}"
-    if not re.search(r"^\s*budget_policy_id: \$\{var\.usage_policy_id\}", content, re.MULTILINE):
+    if not re.search(
+        r"^\s*budget_policy_id: \$\{var\.usage_policy_id\}", content, re.MULTILINE
+    ):
         policy = f"# {policy}  # TODO: wire with scripts/enable_usage_policy.py — see docs/usage-tracking.md"
     return experiment_tags, f"\n      {policy}"
 
@@ -227,7 +240,9 @@ def append_agent_resources_to_databricks_yml(project_root: Path, name: str):
     yml_path = project_root / "databricks.yml"
     content = yml_path.read_text()
     project_name = get_project_name(project_root)
-    experiment_tags, app_policy_line = usage_tracking_snippets(content, project_name, name)
+    experiment_tags, app_policy_line = usage_tracking_snippets(
+        content, project_name, name
+    )
 
     experiment_block = f"""
     {name}_experiment:
@@ -264,6 +279,7 @@ def append_agent_resources_to_databricks_yml(project_root: Path, name: str):
 # Manifest
 # --------------------------------------------------------------------------- #
 
+
 def update_manifest(project_root: Path, name: str, sup_type: str, routes: list[str]):
     """Record the supervisor in the scaffold contract. CI and tooling read this
     without needing to know how the supervisor was created."""
@@ -274,8 +290,10 @@ def update_manifest(project_root: Path, name: str, sup_type: str, routes: list[s
 
     content = manifest_path.read_text().rstrip("\n")
     if "\nsupervisor:" in content or content.startswith("supervisor:"):
-        print("  WARN: manifest already has a `supervisor:` block — leaving it "
-              "in place. Edit .agentops-stacks/manifest.yml by hand if needed.")
+        print(
+            "  WARN: manifest already has a `supervisor:` block — leaving it "
+            "in place. Edit .agentops-stacks/manifest.yml by hand if needed."
+        )
         return
 
     routes_yaml = "".join(f"\n    - {r}" for r in routes) if routes else " []"
@@ -296,32 +314,53 @@ supervisor:
 # Main
 # --------------------------------------------------------------------------- #
 
+
 def main():
+    """CLI entry point: scaffold a supervisor agent that routes across agents."""
     parser = argparse.ArgumentParser(
         description="Add a supervisor agent to an AgentOps Stacks project"
     )
-    parser.add_argument("--name", required=True,
-                        help="Supervisor agent name (lowercase, underscores, min 3 chars)")
-    parser.add_argument("--type", default="custom", choices=sorted(VALID_TYPES),
-                        help="Supervisor pattern (currently only 'custom'; default: custom)")
-    parser.add_argument("--routes", default="",
-                        help="Comma-separated sub-agent names this supervisor routes to")
-    parser.add_argument("--from", dest="source", default=None,
-                        help="Existing agent to base the App shape on "
-                             "(default: first found)")
-    parser.add_argument("--project-dir", default=".", help="Project root (default: cwd)")
+    parser.add_argument(
+        "--name",
+        required=True,
+        help="Supervisor agent name (lowercase, underscores, min 3 chars)",
+    )
+    parser.add_argument(
+        "--type",
+        default="custom",
+        choices=sorted(VALID_TYPES),
+        help="Supervisor pattern (currently only 'custom'; default: custom)",
+    )
+    parser.add_argument(
+        "--routes",
+        default="",
+        help="Comma-separated sub-agent names this supervisor routes to",
+    )
+    parser.add_argument(
+        "--from",
+        dest="source",
+        default=None,
+        help="Existing agent to base the App shape on " "(default: first found)",
+    )
+    parser.add_argument(
+        "--project-dir", default=".", help="Project root (default: cwd)"
+    )
     args = parser.parse_args()
 
-    if not NAME_RE.match(args.name):
-        sys.exit("ERROR: Supervisor name must start with a lowercase letter and "
-                 "contain only lowercase letters, digits, and underscores (min 3 chars).")
+    if not NAME_RE.fullmatch(args.name):
+        sys.exit(
+            "ERROR: Supervisor name must start with a lowercase letter and "
+            "contain only lowercase letters, digits, and underscores (min 3 chars)."
+        )
 
     routes = [r.strip() for r in args.routes.split(",") if r.strip()]
     if not routes:
-        sys.exit("ERROR: --routes must name at least one sub-agent to route to "
-                 "(comma-separated). A supervisor with no routes scaffolds an "
-                 "empty create_supervisor([]) / managed tool list, which fails "
-                 "to start. Example: --routes rag,support")
+        sys.exit(
+            "ERROR: --routes must name at least one sub-agent to route to "
+            "(comma-separated). A supervisor with no routes scaffolds an "
+            "empty create_supervisor([]) / managed tool list, which fails "
+            "to start. Example: --routes rag,support"
+        )
 
     project_root = find_project_root(Path(args.project_dir))
     print(f"Project root: {project_root}")
@@ -334,12 +373,16 @@ def main():
     # may point at a Genie space or managed endpoint rather than a local agent).
     unknown = [r for r in routes if r not in existing]
     if unknown:
-        print(f"  NOTE: routes not matching a local agent (assumed managed "
-              f"sub-agents — Genie/KA/endpoint): {unknown}")
+        print(
+            f"  NOTE: routes not matching a local agent (assumed managed "
+            f"sub-agents — Genie/KA/endpoint): {unknown}"
+        )
 
     if not existing:
-        sys.exit("ERROR: No existing agents to base the supervisor App on. "
-                 "Scaffold at least one agent first.")
+        sys.exit(
+            "ERROR: No existing agents to base the supervisor App on. "
+            "Scaffold at least one agent first."
+        )
     source = args.source or existing[0]
     if source not in existing:
         sys.exit(f"ERROR: Source agent '{source}' not found. Available: {existing}")

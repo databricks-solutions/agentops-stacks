@@ -4,11 +4,15 @@ Mirrors the structure of databricks/mlops-stacks/tests/utils.py.
 No external dependencies beyond stdlib + the Databricks CLI on PATH.
 """
 
+import ast
+import itertools
 import json
 import os
 import pathlib
 import re
 import subprocess
+
+from pyflakes import checker as pyflakes_checker
 
 RESOURCE_TEMPLATE_ROOT_DIRECTORY = str(pathlib.Path(__file__).parent.parent)
 
@@ -51,21 +55,30 @@ def generate(directory, context=None):
     if key in _cache:
         return _cache[key]
 
+    os.makedirs(str(directory), exist_ok=True)
     config_file = os.path.join(str(directory), "config.json")
     with open(config_file, "w") as f:
         json.dump(params, f)
 
     result = subprocess.run(
         [
-            "databricks", "bundle", "init",
+            "databricks",
+            "bundle",
+            "init",
             RESOURCE_TEMPLATE_ROOT_DIRECTORY,
-            "--config-file", config_file,
-            "--output-dir", str(directory),
+            "--config-file",
+            config_file,
+            "--output-dir",
+            str(directory),
         ],
         capture_output=True,
         text=True,
         # Stub auth so the CLI never contacts a real workspace during tests.
-        env={**os.environ, "DATABRICKS_HOST": "https://stub", "DATABRICKS_TOKEN": "stub"},
+        env={
+            **os.environ,
+            "DATABRICKS_HOST": "https://stub",
+            "DATABRICKS_TOKEN": "stub",
+        },
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -92,23 +105,23 @@ def file_exists(project_dir, path):
     return (pathlib.Path(project_dir) / path).exists()
 
 
-def has_template_file(*path_parts):
-    """True if a template source file exists in the repo (for conditional skips)."""
-    return pathlib.Path(RESOURCE_TEMPLATE_ROOT_DIRECTORY, "template", *path_parts).exists()
-
-
 def assert_no_disallowed_strings_in_files(
     file_paths, disallowed_strings, exclude_path_matches=None
 ):
     """Assert none of the files contain any of the disallowed strings."""
     if exclude_path_matches is None:
         exclude_path_matches = []
-    exclude_path_matches = exclude_path_matches + [".png", ".parquet", ".tar.gz", ".lock"]
+    exclude_path_matches = exclude_path_matches + [
+        ".png",
+        ".parquet",
+        ".tar.gz",
+        ".lock",
+    ]
 
     def should_check(filepath):
-        return not any(sub in filepath for sub in exclude_path_matches) and os.path.isfile(
-            filepath
-        )
+        return not any(
+            sub in filepath for sub in exclude_path_matches
+        ) and os.path.isfile(filepath)
 
     for path in filter(should_check, file_paths):
         with open(path, "r", errors="ignore") as f:
@@ -122,11 +135,12 @@ def assert_no_go_templates(project_dir):
 
     Matches `{{ .` / `{{ if` / `{{ end` etc. (a `{{` immediately followed by a
     dot, dollar, or letter) — not bare `{{ }}` which legitimately appears in
-    JSON, Python dicts, and GitHub Actions `${{ }}` expressions.
+    JSON and Python dicts, and not `${{ }}` CI expressions. YAML is checked too.
     """
-    go_tmpl_re = re.compile(r"\{\{\s*[\.\$a-z]", re.IGNORECASE)
-    # YAML workflow files legitimately contain GitHub Actions ${{ }} syntax.
-    skip_ext = [".png", ".parquet", ".lock", ".yml", ".yaml"]
+    # `${{ ... }}` (GitHub Actions / Azure DevOps expressions) is legitimate in
+    # generated CI files, so a `{{` preceded by `$` is not a Go directive.
+    go_tmpl_re = re.compile(r"(?<!\$)\{\{\s*[\.\$a-z]", re.IGNORECASE)
+    skip_ext = [".png", ".parquet", ".lock"]
 
     for filepath in paths(project_dir):
         if any(pat in filepath for pat in skip_ext):
@@ -149,3 +163,230 @@ def read_workflow(project_dir, workflow_name=None):
         assert matches, f"No workflow matching '{workflow_name}' in {workflow_dir}"
         return matches[0].read_text()
     return {f.name: f.read_text() for f in workflow_dir.glob("*.yml")}
+
+
+# ---------------------------------------------------------------------------
+# Generation matrix (mirrors mlops-stacks' parametrize_by_project_generation_params)
+# ---------------------------------------------------------------------------
+
+# Inputs that change generated code. Each level is the set of params it sets.
+VECTOR_SEARCH_LEVELS = [
+    {"input_use_vector_search": "no"},
+    {"input_use_vector_search": "yes", "input_has_chunked_table": "no"},
+    {"input_use_vector_search": "yes", "input_has_chunked_table": "yes"},
+]
+LAKEBASE_LEVELS = [
+    {"input_use_lakebase": "no"},
+    {"input_use_lakebase": "yes", "input_memory_type": "short_term"},
+    {"input_use_lakebase": "yes", "input_memory_type": "long_term"},
+    {"input_use_lakebase": "yes", "input_memory_type": "both"},
+]
+UC_FUNCTION_LEVELS = [
+    {"input_use_uc_functions": "no"},
+    {"input_use_uc_functions": "yes", "input_uc_functions_exist": "no"},
+    {"input_use_uc_functions": "yes", "input_uc_functions_exist": "yes"},
+]
+EVAL_SOURCE_LEVELS = [
+    {"input_eval_dataset_source": v}
+    for v in ["synthetic", "manual", "production_traces", "existing"]
+]
+EXAMPLE_USAGE_POLICY_ID = "1a2b3c4d-1234-5678-9abc-0123456789ab"
+COST_TAG_LEVELS = [
+    {"input_enable_cost_tags": "no"},
+    {"input_enable_cost_tags": "yes", "input_usage_policy_id": ""},
+    {"input_enable_cost_tags": "yes", "input_usage_policy_id": EXAMPLE_USAGE_POLICY_ID},
+]
+# Usage-policy wiring: shared by test_create_project and the integration tests.
+ALL_COMPONENTS = {
+    "input_use_vector_search": "yes",
+    "input_use_lakebase": "yes",
+    "input_use_uc_functions": "yes",
+}
+LIVE_POLICY_LINE = "budget_policy_id: ${var.usage_policy_id}"
+COMMENTED_POLICY_LINE = "# budget_policy_id: ${var.usage_policy_id}"
+POLICY_RESOURCE_FILES = [
+    "databricks.yml",
+    "resources/lakebase.yml",
+    "resources/vector_search.yml",
+    "resources/data_pipeline.yml",
+    "resources/uc_function_registration.yml",
+]
+
+
+def live_policy_lines(content):
+    """Uncommented budget_policy_id lines in a file's content."""
+    return [l for l in content.splitlines() if l.strip() == LIVE_POLICY_LINE]
+
+
+CODE_FACTORS = [
+    VECTOR_SEARCH_LEVELS,
+    LAKEBASE_LEVELS,
+    UC_FUNCTION_LEVELS,
+    COST_TAG_LEVELS,
+    EVAL_SOURCE_LEVELS,
+]
+
+CLOUDS = ["aws", "azure", "gcp"]
+CICD_PLATFORMS = [
+    "github_actions",
+    "github_actions_for_github_enterprise_servers",
+    "azure_devops",
+    "gitlab",
+]
+
+
+def _label(params):
+    return "-".join(f"{k.removeprefix('input_')}={v}" for k, v in params.items())
+
+
+def _pairs(levels):
+    """Every (factor, level) pair a row of level indexes covers."""
+    return {
+        ((i, a), (j, b))
+        for i, a in enumerate(levels)
+        for j, b in enumerate(levels)
+        if i < j
+    }
+
+
+def _pairwise_rows():
+    """Deterministic greedy pairwise cover over CODE_FACTORS.
+
+    Repeatedly takes the first row of the full product that covers the most
+    still-uncovered level pairs, until every pair of levels across any two
+    factors appears in at least one row.
+    """
+    product = list(itertools.product(*(range(len(f)) for f in CODE_FACTORS)))
+    uncovered = set().union(*(_pairs(row) for row in product))
+    rows = []
+    while uncovered:
+        best = max(product, key=lambda row: len(_pairs(row) & uncovered))
+        rows.append(best)
+        uncovered -= _pairs(best)
+    return rows
+
+
+def code_combinations(full=False):
+    """Combinations of the code-affecting inputs as (id, params) pairs.
+
+    full=False returns a pairwise covering set (see _pairwise_rows). Odd rows
+    use a non-default agent name to catch a hardcoded "default".
+    full=True returns the full product of CODE_FACTORS.
+    """
+    if full:
+        indexes = list(itertools.product(*(range(len(f)) for f in CODE_FACTORS)))
+    else:
+        indexes = _pairwise_rows()
+    rows = []
+    for n, idx in enumerate(indexes):
+        row = {}
+        for factor, i in zip(CODE_FACTORS, idx):
+            row.update(factor[i])
+        if not full and n % 2:
+            row["input_initial_agent_name"] = "support_bot"
+        rows.append(row)
+    return [(_label(r), r) for r in rows]
+
+
+def cicd_combinations():
+    """Every cloud x CI/CD platform pair, at default component settings."""
+    return [
+        (f"{p}-{c}", {"input_cicd_platform": p, "input_cloud": c})
+        for p in CICD_PLATFORMS
+        for c in CLOUDS
+    ]
+
+
+def assert_no_missing_template_values(project_dir):
+    """Go's text/template renders a missing key as `<no value>`."""
+    for filepath in paths(project_dir):
+        content = (pathlib.Path(project_dir) / filepath).read_text(errors="ignore")
+        assert "<no value>" not in content, f"'<no value>' rendered in {filepath}"
+
+
+# ---------------------------------------------------------------------------
+# Static Python checks (shared by generated-code and plugin tests)
+# ---------------------------------------------------------------------------
+
+NOTEBOOK_HEADER = "# Databricks notebook source"
+NOTEBOOK_GLOBALS = {"spark", "dbutils", "display", "displayHTML"}
+AGENT_DIR_RE = re.compile(r"^src/agents/[^/]+/")
+
+
+def normalize(relpath):
+    return AGENT_DIR_RE.sub("src/agents/<agent>/", relpath)
+
+
+def is_notebook(source):
+    return source.startswith(NOTEBOOK_HEADER)
+
+
+# flake8's codes for pyflakes messages, so `# noqa: F401` suppresses only F401.
+PYFLAKES_CODES = {
+    "UnusedImport": "F401",
+    "ImportShadowedByLoopVar": "F402",
+    "ImportStarUsed": "F403",
+    "LateFutureImport": "F404",
+    "ImportStarUsage": "F405",
+    "FStringMissingPlaceholders": "F541",
+    "MultiValueRepeatedKeyLiteral": "F601",
+    "IsLiteral": "F632",
+    "RedefinedWhileUnused": "F811",
+    "UndefinedName": "F821",
+    "UndefinedExport": "F822",
+    "UndefinedLocal": "F823",
+    "DuplicateArgument": "F831",
+    "UnusedVariable": "F841",
+}
+NOQA_RE = re.compile(
+    r"#\s*noqa(?::\s*(?P<codes>[A-Z]+[0-9]+(?:[,\s]+[A-Z]+[0-9]+)*))?", re.I
+)
+
+
+def _suppressed(message, line):
+    """flake8 semantics: bare `# noqa` hides everything, `# noqa: X` only code X."""
+    m = NOQA_RE.search(line)
+    if not m:
+        return False
+    if not m.group("codes"):
+        return True
+    codes = {c.upper() for c in re.split(r"[,\s]+", m.group("codes")) if c}
+    return PYFLAKES_CODES.get(type(message).__name__) in codes
+
+
+def pyflakes_messages(relpath, source):
+    """pyflakes findings, honoring `# noqa` on the reported line like flake8 does."""
+    tree = ast.parse(source, filename=relpath)
+    w = pyflakes_checker.Checker(tree, filename=relpath, builtins=NOTEBOOK_GLOBALS)
+    lines = source.splitlines()
+    return {
+        f"{normalize(relpath)}: {m.message % m.message_args}"
+        for m in w.messages
+        if not _suppressed(m, lines[m.lineno - 1])
+    }
+
+
+def docstring_violations(relpath, source):
+    """Missing docstrings: module (non-notebooks), public classes, functions, methods."""
+    tree = ast.parse(source, filename=relpath)
+    name = normalize(relpath)
+    found = set()
+    if not is_notebook(source) and not ast.get_docstring(tree):
+        found.add(f"{name}: module")
+
+    def visit(nodes, prefix=""):
+        for node in nodes:
+            if not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                continue
+            if node.name.startswith("_"):
+                continue
+            qual = f"{prefix}{node.name}"
+            if not ast.get_docstring(node):
+                found.add(f"{name}: {qual}")
+            if isinstance(node, ast.ClassDef):
+                visit(node.body, prefix=f"{qual}.")
+
+    visit(tree.body)
+    return found

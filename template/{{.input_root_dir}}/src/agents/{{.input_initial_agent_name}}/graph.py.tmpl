@@ -169,6 +169,7 @@ async def get_async_store():
 # --- Graph ---
 
 def build_graph():
+    """Assemble the agent graph and return the uncompiled StateGraph builder."""
     tools = get_tools()
     builder = StateGraph(MessagesState)
 

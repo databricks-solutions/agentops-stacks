@@ -155,16 +155,6 @@ After scaffolding:
 4. `databricks bundle deploy -t dev` to deploy
 5. If `enable_cost_tags: yes` and no `usage_policy_id` was given: serverless usage stays untagged until a usage policy is set. See `docs/usage-tracking.md`.
 
-Point the user at the reference example closest to what they just scaffolded:
-
-| If they enabled... | Best reference example |
-|---|---|
-| Vector Search (RAG) | [`examples/simple-rag/`](../../../examples/simple-rag/) — full RAG agent: VS ingestion, retrieval, Foundation Model API, Databricks App, eval gate |
-| Lakebase memory or multiple agents | [`examples/multi-agent/`](../../../examples/multi-agent/) — three agents sharing tools, each an independent App, per-agent eval datasets |
-| Neither (minimal start) | [`examples/hello-agent/`](../../../examples/hello-agent/) — minimal pyfunc agent: register → evaluate → gate loop |
-
-Each example is a complete reference with agent code, DAB resources, setup notebooks, and an eval gate. Encourage the user to copy patterns from the nearest example rather than starting from scratch.
-
 ## Adding more agents
 
 1. Create `src/agents/<new_name>/` with `agent.py`, `tools.py`, `app/`, `eval/`

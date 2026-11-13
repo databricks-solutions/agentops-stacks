@@ -33,19 +33,21 @@ without any traces. Example: the billing agent needs a tool to query customer sp
 test that the tool returns correct results. You can also **generate personas + scenarios** and
 have an LLM synthesize sample queries:
 ```python
-"billing": {
-    "contexts": [
-        QueryContext("billing", True, True, "concerned customer", "bill inquiry"),
-        QueryContext("billing", True, True, "budget-conscious customer", "payment planning"),
-        QueryContext("billing", True, True, "traveling customer", "roaming charges"),
-    ],
-    "base_scenarios": [
-        "customer sees unexpected charges on their bill",
-        "customer wants to know when payment is due",
-        "customer needs breakdown of current month charges",
-        "customer is questioning data usage amounts",
-    ],
-},
+SCENARIOS = {
+    "billing": {
+        "contexts": [
+            QueryContext("billing", True, True, "concerned customer", "bill inquiry"),
+            QueryContext("billing", True, True, "budget-conscious customer", "payment planning"),
+            QueryContext("billing", True, True, "traveling customer", "roaming charges"),
+        ],
+        "base_scenarios": [
+            "customer sees unexpected charges on their bill",
+            "customer wants to know when payment is due",
+            "customer needs breakdown of current month charges",
+            "customer is questioning data usage amounts",
+        ],
+    },
+}
 ```
 
 **Bottom-up** — some failure modes only appear after **error analysis of real traces** (e.g. an
