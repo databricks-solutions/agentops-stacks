@@ -26,3 +26,6 @@
 __pycache__/
 .cache
 *.pyc
+
+# Demo guide values (agentops-stacks-demo-guide.html Setup tab): one reader's workspace URLs and IDs.
+/demo-guide-config.js
