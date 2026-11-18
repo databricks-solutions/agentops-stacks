@@ -6,7 +6,7 @@
 # MAGIC can scaffold new DAB projects and guide them through the full production
 # MAGIC lifecycle.
 # MAGIC
-# MAGIC Installs eight skills:
+# MAGIC Installs nine skills:
 # MAGIC - `agentops-bigbook` — advisory reference (Big Book of AgentOps): patterns, anti-patterns, eval, governance
 # MAGIC - `agentops-stacks` — scaffolds a new project via `databricks bundle init`
 # MAGIC - `agentops-lifecycle` — guides an existing scaffold through the 10-step dev→prod lifecycle
@@ -15,6 +15,7 @@
 # MAGIC - `lakebase-ops` — operates and troubleshoots the Lakebase memory component
 # MAGIC - `uc-functions-ops` — registers, grants, and manages UC function tools
 # MAGIC - `usage-tracking-ops` — tags resources and attaches usage policies for cost attribution
+# MAGIC - `unity-gateway-ops` — adds model, provider, and MCP services to an existing DAB
 # MAGIC
 # MAGIC Destination: `/Workspace/Users/<your_username>/.assistant/skills/<skill-name>/SKILL.md`
 # MAGIC
@@ -78,7 +79,14 @@ def _upload(w, workspace_path, content):
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
-SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops", "usage-tracking-ops"]
+SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops", "usage-tracking-ops", "unity-gateway-ops"]
+
+SKILL_FILES = {skill_name: ["SKILL.md"] for skill_name in SKILLS}
+SKILL_FILES["unity-gateway-ops"].extend([
+    "references/model-services.md",
+    "references/model-provider-services.md",
+    "references/mcp-services.md",
+])
 
 w = WorkspaceClient()
 username = w.current_user.me().user_name
@@ -89,20 +97,18 @@ print(f"Source:   github.com/{GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_REF}")
 print(f"Target:   /Workspace{skills_base}/<skill>/SKILL.md")
 print()
 
-# Each skill is a single SKILL.md. The template tree, library, schema, and
-# workflow definitions are read from the GitHub repo at run time — nothing
-# needs to be vendored next to the skill files in the workspace.
 for skill_name in SKILLS:
-    src_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_REF}/plugin/skills/{skill_name}/SKILL.md"
     skill_dest = f"{skills_base}/{skill_name}"
 
     print(f"Installing {skill_name}...")
-    data = _download(src_url)
-    if data is None:
-        raise RuntimeError(f"Could not download {src_url}")
+    for relative_path in SKILL_FILES[skill_name]:
+        src_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_REF}/plugin/skills/{skill_name}/{relative_path}"
+        data = _download(src_url)
+        if data is None:
+            raise RuntimeError(f"Could not download {src_url}")
 
-    _upload(w, f"{skill_dest}/SKILL.md", data)
-    print(f"  OK  /Workspace{skill_dest}/SKILL.md")
+        _upload(w, f"{skill_dest}/{relative_path}", data)
+        print(f"  OK  /Workspace{skill_dest}/{relative_path}")
 
 print()
 print("Done.")

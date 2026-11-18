@@ -16,6 +16,7 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 | **`add-agent`** | `add agent`, `new agent`, `create another agent` | Adds a new agent to an existing project — copies an existing agent as a template and wires it into `databricks.yml` and the manifest. |
 | **`add-supervisor`** | `add supervisor`, `add a router`, `orchestrate my agents` | Checks whether a supervisor is warranted, then scaffolds a custom LangGraph supervisor that routes across the project's agents into `databricks.yml` and the manifest — gated by the same eval loop as any agent. |
 | **`usage-tracking-ops`** | `track usage`, `cost attribution`, `tag resources`, `usage policy` | Tags project resources (`project`/`environment`/`agent`) and attaches a serverless usage policy for cost attribution. Retrofits tags onto existing scaffolds and queries attributed usage in `system.billing.usage`. |
+| **`unity-gateway-ops`** | `add model service`, `add model provider service`, `add MCP service`, `add Unity Gateway resource` | Adds a new DAB-owned model service, model provider service, or MCP service to an existing scaffold and guides validation, planning, and promotion. |
 
 ### Commands
 
@@ -51,14 +52,22 @@ cd agentops-stacks
 ./plugin/skills/install_skills.sh --install-to-genie --profile <your-databricks-profile>
 ```
 
-The installer lands `.claude/skills/agentops-stacks/SKILL.md` locally, then uploads it to `/Workspace/Users/<you>/.assistant/skills/agentops-stacks/SKILL.md`. Mirrors the ai-dev-kit install pattern.
+The installer lands all skill directories under `.claude/skills/`, including
+skill-local references, then uploads them under
+`/Workspace/Users/<you>/.assistant/skills/`. Mirrors the ai-dev-kit install
+pattern.
 
 ### Option B — in-workspace notebook
 
 If you can't run a script locally:
 
 1. In your workspace, open [`plugin/skills/install_genie_code_skills.py`](skills/install_genie_code_skills.py) as a notebook. The simplest way is to clone this repo as a Git folder via Workspace → Add → Git folder, then open the file.
-2. Run all cells. The notebook pulls `SKILL.md` from GitHub and uploads it to `/Workspace/Users/<you>/.assistant/skills/agentops-stacks/`. Defaults: `GITHUB_OWNER=databricks-solutions`, `GITHUB_REF=main`. To install from a branch, set the `AGENTOPS_GITHUB_REF` env var when running as a Python script, or edit the configuration cell.
+2. Run all cells. The notebook pulls each supported skill and its required local
+   references from GitHub and uploads them under
+   `/Workspace/Users/<you>/.assistant/skills/`. Defaults:
+   `GITHUB_OWNER=databricks-solutions`, `GITHUB_REF=main`. To install from a
+   branch, set the `AGENTOPS_GITHUB_REF` env var when running as a Python script,
+   or edit the configuration cell.
 
 ### Use it
 
@@ -86,7 +95,10 @@ Prerequisites: `databricks` CLI installed, a coding assistant that loads `.claud
    ```bash
    /path/to/agentops-stacks/plugin/skills/install_skills.sh
    ```
-   The installer creates `.claude/skills/agentops-stacks/SKILL.md` in the current directory. That single file is the skill — `databricks bundle init` reads the template tree and schema from this repo at run time, so nothing else needs to ship alongside.
+   The installer creates skill directories under `.claude/skills/`. Skills with
+   local references, including `unity-gateway-ops`, install those files beside
+   `SKILL.md`. `databricks bundle init` still reads the template tree and schema
+   from this repository at run time.
 
 3. Open Claude Code or Cursor in that directory and either:
    - Type `/init-agentops-stacks`, or
@@ -118,14 +130,17 @@ plugin/
     │   └── SKILL.md                             # lifecycle skill (10-step dev→prod guide)
     ├── add-agent/
     │   └── SKILL.md                             # add-agent skill (wires new agent into existing project)
-    └── add-supervisor/
-        └── SKILL.md                             # add-supervisor skill (routes across agents; best-fit pattern)
+    ├── add-supervisor/
+    │   └── SKILL.md                             # add-supervisor skill (routes across agents; best-fit pattern)
+    └── unity-gateway-ops/
+        ├── SKILL.md                             # DAB authoring for governed AI services
+        └── references/                          # model, provider, and MCP resource contracts
 ```
 
-Each skill is a single `SKILL.md`. There's no Python renderer and no vendored
-template tree — `databricks bundle init` reads the template directly from this
-repo at scaffold time, and the lifecycle skill references generated project
-files by their scaffold-relative paths.
+Each skill has a `SKILL.md` and can include skill-local references. There's no
+Python renderer or vendored template tree — `databricks bundle init` reads the
+template directly from this repo at scaffold time, and the lifecycle skill
+references generated project files by their scaffold-relative paths.
 
 ## Known UX notes
 

@@ -171,16 +171,23 @@ Emit, in order:
 - **UC-function tool** → `uc-functions-ops`: add a `.py`/`.sql` definition under
   `src/components/tools/definitions/`, re-run registration, grant EXECUTE, wire
   into `src/agents/<name>/tools.py`.
-- **MCP server** → connect the agent to the MCP endpoint (Databricks-hosted or
-  external); scope its auth to the app service principal or pass the caller's
-  identity. *(Not scaffolded by the template today — this is guidance, not a
-  generator.)*
+- **MCP server** → use the Databricks App/component-creation workflow when the
+  user wants to build or host the server on Databricks Apps. Building a server
+  outside Databricks is out of scope. If an existing backing server should
+  become a governed MCP service in the project DAB, hand off to
+  `unity-gateway-ops`; if both are requested, build the app and its UC HTTP
+  connection first, then register it. Scope its auth to the app service
+  principal. Caller identity propagation and user-mapped credentials are
+  deferred customer actions in the first version of `unity-gateway-ops`.
 - **Agent Skill** → author a markdown skill the agent loads; it changes the
   agent's instructions, not its tool list. *(Not scaffolded by the template today
   — guidance.)*
 
 If the recommendation is a UC-function tool, hand control to `uc-functions-ops`.
-Otherwise stop — the right move may be *not* building the thing that was asked.
+If an existing backing MCP server is ready for governed DAB registration, hand
+control to `unity-gateway-ops`. Otherwise route Databricks-hosted creation to
+the app/component-creation workflow or stop when off-Databricks creation was
+requested — the right move may be *not* building the thing that was asked.
 
 ## Grounding
 
