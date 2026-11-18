@@ -171,3 +171,14 @@ the scaffold.
 - `template/{{.input_root_dir}}/docs/setup.md.tmpl` — end-to-end configuration guide
 - [Declarative Automation Bundles](https://docs.databricks.com/dev-tools/bundles/)
 - [MLflow 3 + Unity Catalog](https://docs.databricks.com/mlflow3/)
+
+---
+
+## Repository activity
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/databricks-solutions/agentops-stacks/metrics/activity-dark.svg">
+  <img alt="Views, clones, stars, and forks for agentops-stacks over the last 14 days" src="https://raw.githubusercontent.com/databricks-solutions/agentops-stacks/metrics/activity-light.svg">
+</picture>
+
+Updated daily by [`.github/workflows/repo-metrics.yaml`](.github/workflows/repo-metrics.yaml). GitHub keeps traffic for 14 days only, so the workflow saves daily history to the [`metrics` branch](https://github.com/databricks-solutions/agentops-stacks/tree/metrics): [`traffic_daily.csv`](https://github.com/databricks-solutions/agentops-stacks/blob/metrics/traffic_daily.csv) (views and clones) and [`repo_daily.csv`](https://github.com/databricks-solutions/agentops-stacks/blob/metrics/repo_daily.csv) (stars, forks, watchers).
