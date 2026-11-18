@@ -1,0 +1,51 @@
+name: Repository metrics
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+# GITHUB_TOKEN only pushes to the unprotected `metrics` branch. Traffic is read
+# with REPO_METRICS_TOKEN, a fine-grained token scoped to this repository with
+# "Administration: Read-only" (GITHUB_TOKEN cannot read traffic).
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-metrics
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.repository == 'databricks-solutions/agentops-stacks'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check out metrics branch
+        run: |
+          if git ls-remote --exit-code --heads origin metrics >/dev/null; then
+            git fetch --depth=1 origin metrics
+            git worktree add --detach metrics-data FETCH_HEAD
+          else
+            git worktree add --orphan -b metrics metrics-data
+          fi
+      - name: Collect metrics and render card
+        env:
+          GH_TOKEN: ${{ secrets.REPO_METRICS_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::REPO_METRICS_TOKEN secret is not set."
+            exit 1
+          fi
+          python3 .github/scripts/repo_metrics.py metrics-data
+      - name: Push to metrics branch
+        working-directory: metrics-data
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No metric changes."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "Update repository metrics $(date -u +%F)"
+          git push origin HEAD:refs/heads/metrics
