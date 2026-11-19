@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.11'
       # First-party Databricks action, SHA-pinned. Unity Gateway DAB schema
-      # contract tests require CLI v1.17.0 or later.
+      # contract tests require CLI v1.21.0 or later.
       - uses: databricks/setup-cli@2da6132749245fbffb3c10d57cec219de3669967 # v1.26.0
       - name: Install Python dependencies
         run: |
