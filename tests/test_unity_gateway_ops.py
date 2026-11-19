@@ -22,6 +22,7 @@ REFERENCES = {
     "model-provider-services.md",
     "mcp-services.md",
 }
+MIN_UNITY_GATEWAY_CLI_VERSION = (1, 21, 0)
 
 
 def read(path):
@@ -190,6 +191,47 @@ def test_project_owned_services_use_the_resolved_bundle_schema():
     assert "development-mode rewriting" in read(SKILL)
 
 
+def test_project_owned_gateway_dependencies_use_the_resolved_bundle_schema():
+    provider_reference = read(
+        SKILL_DIR / "references" / "model-provider-services.md"
+    )
+    mcp_reference = read(SKILL_DIR / "references" / "mcp-services.md")
+
+    resolved_secret = (
+        "secrets/${var.catalog}."
+        "${resources.schemas.project_schema.name}"
+    )
+    resolved_connection = (
+        "connections/${var.catalog}."
+        "${resources.schemas.project_schema.name}"
+    )
+    assert resolved_secret in provider_reference
+    assert "secrets/${var.catalog}.${var.schema}" not in provider_reference
+    assert resolved_connection in mcp_reference
+    assert "connections/${var.catalog}.${var.schema}" not in mcp_reference
+
+
+def test_installed_cli_meets_unity_gateway_skill_floor():
+    result = subprocess.run(
+        ["databricks", "--version"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    match = re.search(r"\bv?(\d+)\.(\d+)\.(\d+)\b", result.stdout + result.stderr)
+    assert match, (
+        f"Could not parse Databricks CLI version: {result.stdout}{result.stderr}"
+    )
+
+    installed_version = tuple(map(int, match.groups()))
+    assert installed_version >= MIN_UNITY_GATEWAY_CLI_VERSION, (
+        "Unity Gateway secure DAB configuration requires Databricks CLI "
+        f"{'.'.join(map(str, MIN_UNITY_GATEWAY_CLI_VERSION))} or later; "
+        f"found {'.'.join(map(str, installed_version))}"
+    )
+
+
 def test_generated_ci_cli_pin_supports_unity_gateway_schema():
     variables = read(ROOT / "library" / "template_variables.tmpl")
     sha_match = re.search(
@@ -203,7 +245,7 @@ def test_generated_ci_cli_pin_supports_unity_gateway_schema():
 
     assert sha_match, "Generated CI must use an immutable setup-cli commit SHA"
     assert tag_match, "Generated CI must document the corresponding CLI tag"
-    assert tuple(map(int, tag_match.groups())) >= (1, 17, 0)
+    assert tuple(map(int, tag_match.groups())) >= MIN_UNITY_GATEWAY_CLI_VERSION
 
     generated_root = ROOT / "template" / "{{.input_root_dir}}"
     ci_templates = [

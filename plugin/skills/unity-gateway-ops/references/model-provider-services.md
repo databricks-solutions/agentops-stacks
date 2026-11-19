@@ -84,7 +84,7 @@ For a provider field that accepts `ProviderSecret`, use a UC secret reference:
 ```yaml
 api_key:
   secret_reference:
-    name: secrets/${var.catalog}.${var.schema}.<secret-name>
+    name: secrets/${var.catalog}.${resources.schemas.project_schema.name}.<secret-name>
 ```
 
 The service owner needs continued access to that secret. Rotation updates the
@@ -117,7 +117,7 @@ resources:
           direct:
             api_key:
               secret_reference:
-                name: secrets/${var.catalog}.${var.schema}.openai-api-key
+                name: secrets/${var.catalog}.${resources.schemas.project_schema.name}.openai-api-key
         allow_all_targets: false
         targets:
           - model: <exact-provider-model>

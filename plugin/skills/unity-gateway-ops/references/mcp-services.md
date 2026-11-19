@@ -65,7 +65,7 @@ resources:
       comment: "Governed MCP service for ${bundle.name}"
       config:
         source_connection:
-          name: connections/${var.catalog}.${var.schema}.support-mcp
+          name: connections/${var.catalog}.${resources.schemas.project_schema.name}.support-mcp
         include_tool_selectors:
           - read_*
       grants:
